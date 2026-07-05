@@ -94,6 +94,8 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
 
   // Product Creation State
   const [isCreatingProduct, setIsCreatingProduct] = useState(false);
+  const [showScanError, setShowScanError] = useState(false);
+  const [lastScannedSku, setLastScannedSku] = useState('');
   const [newProduct, setNewProduct] = useState<Partial<Product>>({ 
     name: '', sku: '', stock: 0, unit: 'pcs', capacity: '', 
     buyPrice: 0, sellPrice: 0, wholesalePrice: 0, 
@@ -372,7 +374,7 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
     else if (action === 'share') {
         if (activeCustomer && activeCustomer.phone) {
             const itemsList = sale.items.map(i => `• ${i.name} x${i.quantity}`).join('%0A');
-            const link = `${window.location.origin}/invoice/${sale.id}.html`; 
+            const link = `${window.location.origin}/?invoice=${sale.id}`; 
             const message = `*${settings.storeName || "Noor Store"}*%0A%0A*Items:*%0A${itemsList}%0A%0A*Total: ₹${sale.total.toFixed(0)}*%0A*Invoice Link:* ${link}`;
             const url = `https://wa.me/${activeCustomer.phone.replace(/[^0-9]/g, '')}?text=${message}`;
             try {
@@ -418,10 +420,20 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
                         const product = products.find(p => p.sku === decodedText || p.id === decodedText);
                         if (product) { addToCart(product); setShowScanner(false); window.history.back(); }
                         else { 
-                            setShowScanner(false); 
-                            setNewProduct(prev => ({ ...prev, sku: decodedText })); 
-                            setIsCreatingProduct(true); 
-                            setShowProductLookup(true); 
+                            if (settings.autoOpenAddProduct !== false) {
+                                setShowScanner(false); 
+                                setNewProduct(prev => ({ ...prev, sku: decodedText })); 
+                                setIsCreatingProduct(true); 
+                                setShowProductLookup(true); 
+                            } else {
+                                setShowScanner(false);
+                                window.history.back();
+                                setLastScannedSku(decodedText);
+                                setShowScanError(true);
+                                setTimeout(() => {
+                                    setShowScanError(false);
+                                }, 1000);
+                            }
                         }
                     }, () => {}).catch(err => {
                         console.warn("Html5Qrcode scanner failed to start:", err);
@@ -432,7 +444,7 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
         }, 100);
         return () => { clearTimeout(timeoutId); html5QrCode?.isScanning && html5QrCode.stop(); };
     }
-  }, [showScanner, products, settings.soundEnabled]);
+  }, [showScanner, products, settings]);
 
   if (viewMode === 'HISTORY') {
       return (
@@ -483,7 +495,7 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
           </div>
           <div className="px-4 md:px-8 py-3 bg-white"><button onClick={() => { window.history.pushState({ tab: Tab.POS, depth: 1 }, ''); setShowScanner(true); }} className="w-full flex items-center justify-center gap-2 py-3 bg-black hover:bg-zinc-900 text-white rounded-lg shadow-sm active:scale-95 transition-all"><Scan size={20}/><span className="font-bold text-sm">Scan Barcode</span></button></div>
           <div className="overflow-x-auto min-h-[220px] max-h-[340px] overflow-y-auto flex flex-col">
-              <div className="min-w-[600px] w-full"><div className="grid grid-cols-[40px_2fr_80px_60px_60px_80px_40px] gap-2 px-4 md:px-8 py-3 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 z-20"><div className="text-center">#</div><div>Item Details</div><div className="text-right">Price</div><div className="text-center">Qty</div><div className="text-center">Dis</div><div className="text-right">Total</div><div></div></div><div className="divide-y divide-gray-100">{cart.map((item, index) => (<div key={item.id} className="grid grid-cols-[40px_2fr_80px_60px_60px_80px_40px] gap-2 items-center px-4 md:px-8 py-3 hover:bg-gray-50/50 transition-colors group"><div className="text-center text-gray-400 font-medium text-sm">{index + 1}</div><div><input className="w-full font-bold text-gray-900 text-sm bg-transparent border-b border-transparent focus:border-blue-500 outline-none" value={item.name} onChange={(e) => updateCartItem(item.id, 'name', e.target.value)} />{(item.size || item.color) && (<div className="flex gap-1.5 mt-0.5">{item.size && <span className="inline-block text-[9px] font-black uppercase text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">{item.size}</span>}{item.color && <span className="inline-block text-[9px] font-black uppercase text-indigo-500 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">{item.color}</span>}</div>)}</div><div className="text-right"><input type="number" className="w-full text-right bg-transparent border-b border-transparent focus:border-blue-500 outline-none text-sm font-medium" value={item.customPrice ?? item.sellPrice} onChange={(e) => updateCartItem(item.id, 'customPrice', parseFloat(e.target.value) || 0)} /></div><div className="px-1"><input type="number" className="w-full text-center bg-gray-50 rounded py-1 outline-none text-sm font-bold" value={item.quantity} onChange={(e) => updateCartItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} /></div><div className="px-1"><input type="number" className="w-full text-center bg-transparent border-b border-transparent focus:border-red-500 outline-none text-sm text-red-500" value={item.discount || ''} onChange={(e) => updateCartItem(item.id, 'discount', parseFloat(e.target.value) || 0)} /></div><div className="text-right font-extrabold text-gray-900 text-sm">₹{((item.customPrice ?? item.sellPrice) * item.quantity).toFixed(0)}</div><div className="text-right"><button onClick={() => removeFromCart(item.id)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={16}/></button></div></div>))}<div className="grid grid-cols-[40px_2fr_80px_60px_60px_80px_40px] gap-2 items-start px-4 md:px-8 py-3 bg-white relative"><div className="text-center text-gray-300 font-medium text-sm pt-2">{cart.length + 1}</div><div className="relative"><input ref={inlineSearchRef} className="w-full py-2 border-b-2 border-blue-100 outline-none text-sm font-medium focus:border-blue-500" placeholder="Type item name..." value={inlineSearch} onChange={(e) => setInlineSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && filteredInlineProducts.length > 0) addToCart(filteredInlineProducts[0]); }} />{inlineSearch && (<div className="absolute top-full left-0 w-full mt-1 bg-white rounded-lg shadow-xl border z-50 overflow-y-auto max-h-60">{filteredInlineProducts.length > 0 ? filteredInlineProducts.map(p => (<button key={p.id} onClick={() => addToCart(p)} className="w-full text-left px-4 py-2.5 hover:bg-blue-50 border-b flex justify-between items-center text-sm"><div className="flex flex-col"><span className="font-bold text-gray-800">{p.name} {p.size ? `(${p.size})` : ''} {p.color ? `[${p.color}]` : ''}</span><span className="text-[10px] text-gray-400">Stock: {p.stock} {p.unit} {p.expiryDate ? `• Exp: ${p.expiryDate}` : ''}</span></div><span className="font-extrabold text-blue-600">₹{p.sellPrice}</span></button>)) : <button onClick={() => { window.history.pushState({ tab: Tab.POS, depth: 1 }, ''); setIsCreatingProduct(true); setNewProduct({ ...newProduct, name: inlineSearch }); setShowProductLookup(true); setInlineSearch(''); }} className="w-full text-left px-4 py-3 text-sm text-blue-600 font-bold hover:bg-blue-50">+ Add "{inlineSearch}"</button>}</div>)}</div><div className="text-right pt-2 text-gray-300 text-sm">-</div><div className="text-center pt-2 text-gray-300 text-sm">-</div><div className="text-center pt-2 text-gray-300 text-sm">-</div><div className="text-right pt-2 text-gray-300 text-sm">-</div></div></div></div>
+              <div className="min-w-[600px] w-full"><div className="grid grid-cols-[40px_2fr_80px_60px_60px_80px_40px] gap-2 px-4 md:px-8 py-3 bg-gray-50 border-b border-gray-200 text-xs font-bold text-gray-500 uppercase tracking-wider sticky top-0 z-20"><div className="text-center">#</div><div>Item Details</div><div className="text-right">Price</div><div className="text-center">Qty</div><div className="text-center">Dis</div><div className="text-right">Total</div><div></div></div><div className="divide-y divide-gray-100">{cart.map((item, index) => (<div key={item.id} className="grid grid-cols-[40px_2fr_80px_60px_60px_80px_40px] gap-2 items-center px-4 md:px-8 py-3 hover:bg-gray-50/50 transition-colors group"><div className="text-center text-gray-400 font-medium text-sm">{index + 1}</div><div><input className="w-full font-bold text-gray-900 text-sm bg-transparent border-b border-transparent focus:border-blue-500 outline-none" value={item.name} onChange={(e) => updateCartItem(item.id, 'name', e.target.value)} />{(item.size || item.color) && (<div className="flex gap-1.5 mt-0.5">{item.size && <span className="inline-block text-[9px] font-black uppercase text-gray-500 bg-gray-100 border border-gray-200 px-1.5 py-0.5 rounded">{item.size}</span>}{item.color && <span className="inline-block text-[9px] font-black uppercase text-indigo-500 bg-indigo-50 border border-indigo-100 px-1.5 py-0.5 rounded">{item.color}</span>}</div>)}</div><div className="text-right"><input type="number" className="w-full text-right bg-transparent border-b border-transparent focus:border-blue-500 outline-none text-sm font-medium" value={item.customPrice ?? item.sellPrice} onChange={(e) => updateCartItem(item.id, 'customPrice', parseFloat(e.target.value) || 0)} /></div><div className="px-1"><input type="number" className="w-full text-center bg-gray-50 rounded py-1 outline-none text-sm font-bold" value={item.quantity} onChange={(e) => updateCartItem(item.id, 'quantity', parseFloat(e.target.value) || 0)} /></div><div className="px-1"><input type="number" className="w-full text-center bg-transparent border-b border-transparent focus:border-red-500 outline-none text-sm text-red-500" value={item.discount || ''} onChange={(e) => updateCartItem(item.id, 'discount', parseFloat(e.target.value) || 0)} /></div><div className="text-right font-extrabold text-gray-900 text-sm">₹{((item.customPrice ?? item.sellPrice) * item.quantity).toFixed(0)}</div><div className="text-right"><button onClick={() => removeFromCart(item.id)} className="p-1.5 text-gray-300 hover:text-red-500"><Trash2 size={16}/></button></div></div>))}<div className="grid grid-cols-[40px_2fr_80px_60px_60px_80px_40px] gap-2 items-start px-4 md:px-8 py-3 bg-white relative"><div className="text-center text-gray-300 font-medium text-sm pt-2">{cart.length + 1}</div><div className="relative"><input ref={inlineSearchRef} className="w-full py-2 border-b-2 border-blue-100 outline-none text-sm font-medium focus:border-blue-500" placeholder="Type item name..." value={inlineSearch} onChange={(e) => setInlineSearch(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter' && filteredInlineProducts.length > 0) addToCart(filteredInlineProducts[0]); }} />{inlineSearch && (<div className="absolute top-full left-0 w-full mt-1 bg-white rounded-lg shadow-xl border z-50 overflow-y-auto max-h-60">{filteredInlineProducts.length > 0 ? filteredInlineProducts.map(p => (<button key={p.id} onClick={() => addToCart(p)} className="w-full text-left px-4 py-2.5 hover:bg-blue-50 border-b flex justify-between items-center text-sm"><div className="flex flex-col"><span className="font-bold text-gray-800">{p.name} {p.size ? `(${p.size})` : ''} {p.color ? `[${p.color}]` : ''}</span><span className="text-[10px] text-gray-400">Stock: {p.stock} {p.unit} {p.expiryDate ? `• Exp: ${p.expiryDate}` : ''}</span></div><span className="font-extrabold text-blue-600">₹{p.sellPrice}</span></button>)) : (settings?.autoOpenAddProduct !== false ? (<button onClick={() => { window.history.pushState({ tab: Tab.POS, depth: 1 }, ''); setIsCreatingProduct(true); setNewProduct({ ...newProduct, name: inlineSearch }); setShowProductLookup(true); setInlineSearch(''); }} className="w-full text-left px-4 py-3 text-sm text-blue-600 font-bold hover:bg-blue-50">+ Add "{inlineSearch}"</button>) : (<div className="p-4 text-center text-xs font-semibold text-gray-500">No matching items found</div>))}</div>)}</div><div className="text-right pt-2 text-gray-300 text-sm">-</div><div className="text-center pt-2 text-gray-300 text-sm">-</div><div className="text-center pt-2 text-gray-300 text-sm">-</div><div className="text-right pt-2 text-gray-300 text-sm">-</div></div></div></div>
           </div>
           <div className="bg-gray-50 p-6 md:p-8 border-t border-gray-200"><div className="flex flex-col md:flex-row gap-8 items-end justify-between"><div className="hidden md:block text-xs text-gray-400">Thank you for your business.</div><div className="w-full md:w-80 space-y-3"><div className="flex justify-between text-sm text-gray-600"><span>Gross Total</span><span>₹{totals.gross.toFixed(2)}</span></div>{totals.discount > 0 && <div className="flex justify-between text-sm text-green-600"><span>Savings</span><span>-₹{totals.discount.toFixed(2)}</span></div>}<div className="flex justify-between text-sm text-gray-600"><span>Tax (GST {settings?.taxRateDefault ?? 0}%)</span><span>₹{totals.tax.toFixed(2)}</span></div><div className="pt-4 border-t flex justify-between items-center"><span className="font-bold text-gray-900 text-lg">Net Payable</span><span className="font-extrabold text-2xl text-green-700">₹{totals.net.toFixed(2)}</span></div><Button variant="success" onClick={() => { window.history.pushState({ tab: Tab.POS, depth: 1 }, ''); setShowCheckout(true); }} disabled={cart.length === 0} className="w-full py-4 mt-4 font-bold text-white text-base shadow-lg tracking-wide hover:bg-green-700 bg-green-600">Complete Sale</Button></div></div></div>
       </div>
@@ -505,6 +517,21 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
           ) : (
             <div id="pos-reader" className="w-full h-full"></div>
           )}
+        </div>
+      </Modal>
+
+      <Modal isOpen={showScanError} onClose={() => setShowScanError(false)} title="Product Not Found" className="!max-w-xs text-center">
+        <div className="flex flex-col items-center justify-center p-4 animate-in fade-in duration-300">
+          <div className="w-12 h-12 bg-red-100 text-red-600 rounded-full flex items-center justify-center mb-3">
+            <AlertTriangle size={24} />
+          </div>
+          <h3 className="font-bold text-base text-gray-900 mb-1">Item Not Found</h3>
+          <p className="text-xs text-gray-500 mb-2 leading-relaxed">
+            No item matched the barcode/SKU:
+          </p>
+          <div className="px-3 py-1.5 bg-gray-100 rounded-lg text-xs font-mono font-bold text-gray-700 select-all">
+            {lastScannedSku}
+          </div>
         </div>
       </Modal>
     </div>

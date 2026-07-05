@@ -45,6 +45,7 @@ const defaultSettings: StoreSettings = {
   recycleBinRetentionDays: 30,
   directPrintEnabled: false,
   scannerPreference: 'both',
+  autoOpenAddProduct: true,
   nasUrl: '',
   syncToNas: false,
   warehouseType: 'general', 

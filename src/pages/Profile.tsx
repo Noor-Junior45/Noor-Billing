@@ -596,6 +596,14 @@ export const Profile: React.FC<ProfileProps> = ({ user, onLogin, onLogout, onSet
        onSettingsChange?.(newSettings);
   };
 
+  const handleToggleAutoOpenAddProduct = async () => {
+       if (!storeSettings) return;
+       const newSettings = { ...storeSettings, autoOpenAddProduct: storeSettings.autoOpenAddProduct === false ? true : false };
+       await StoreService.saveSettings(newSettings);
+       setStoreSettings(newSettings);
+       onSettingsChange?.(newSettings);
+  };
+
   const handleScannerPreferenceChange = async (pref: 'phone' | 'machine' | 'both') => {
       if (!storeSettings) return;
       const newSettings = { ...storeSettings, scannerPreference: pref };
@@ -1421,6 +1429,19 @@ export const Profile: React.FC<ProfileProps> = ({ user, onLogin, onLogout, onSet
                                 className={`w-10 h-5 rounded-full transition-all duration-300 relative shrink-0 border-0 cursor-pointer ${storeSettings?.directPrintEnabled ? 'bg-indigo-600' : 'bg-slate-200'}`}
                             >
                                 <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow ${storeSettings?.directPrintEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                            </button>
+                        </div>
+
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-50">
+                            <div>
+                                <label className="font-bold text-slate-800 text-xs block">Auto-open Add Product Form</label>
+                                <p className="text-[10px] text-slate-400 font-medium">Show the "Add New Product" form automatically when a scanned barcode isn't found.</p>
+                            </div>
+                            <button 
+                                onClick={handleToggleAutoOpenAddProduct} 
+                                className={`w-10 h-5 rounded-full transition-all duration-300 relative shrink-0 border-0 cursor-pointer ${storeSettings?.autoOpenAddProduct !== false ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                            >
+                                <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow ${storeSettings?.autoOpenAddProduct !== false ? 'translate-x-5' : 'translate-x-0'}`}></div>
                             </button>
                         </div>
 

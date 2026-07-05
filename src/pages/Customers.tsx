@@ -122,6 +122,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       
       const updated: Customer = {
           ...customer,
+          name: customer.pendingUpdates.name || customer.name,
           email: customer.pendingUpdates.email || customer.email,
           location: customer.pendingUpdates.location || customer.location
       };
@@ -401,7 +402,13 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
                       <p className="text-xs text-amber-700/85 mb-3 font-medium">
                           This customer submitted update requests via their digital invoice. Review and approve to save to the database:
                       </p>
-                      <div className="space-y-1.5 bg-white p-3 rounded-xl border border-amber-100/70 mb-3 text-xs text-gray-700 font-medium">
+                      <div className="space-y-1.5 bg-white p-3 rounded-xl border border-amber-100/70 mb-3 text-xs text-gray-700 font-medium font-sans">
+                          {customer.pendingUpdates.name && (
+                              <div className="flex items-center gap-2">
+                                  <span className="text-[10px] uppercase font-black text-gray-400 w-16">Name:</span>
+                                  <span className="text-slate-900 font-bold bg-amber-50/50 px-2 py-0.5 rounded-md border border-amber-100/50">{customer.pendingUpdates.name}</span>
+                              </div>
+                          )}
                           {customer.pendingUpdates.email && (
                               <div className="flex items-center gap-2">
                                   <span className="text-[10px] uppercase font-black text-gray-400 w-16">Email:</span>

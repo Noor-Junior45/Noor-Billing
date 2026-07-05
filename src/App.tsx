@@ -44,7 +44,8 @@ import {
   Scale,
   History,
   Image as ImageIcon,
-  Shield
+  Shield,
+  PlusCircle
 } from 'lucide-react';
 import { Card, Button, Input, Modal } from './components/UI';
 import { PrivacyPolicy, TermsOfService } from './components/legal/LegalDocuments';
@@ -647,6 +648,23 @@ export default function App() {
                   </button>
                 </div>
 
+                {/* Auto-open Add Product Form Switch */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-start gap-3.5">
+                    <PlusCircle size={18} className="text-[#3F83F8] mt-0.5 shrink-0" />
+                    <div className="flex flex-col">
+                      <span className="font-bold text-slate-800 text-xs">Add product form</span>
+                      <span className="text-[10px] text-slate-500 font-semibold mt-0.5 leading-none">Show add form when scan isn't found</span>
+                    </div>
+                  </div>
+                  <button 
+                    onClick={() => handleUpdateSettings({ autoOpenAddProduct: settings?.autoOpenAddProduct === false ? true : false })}
+                    className={`w-10 h-5 rounded-full transition-all duration-300 relative shrink-0 border-0 cursor-pointer ${settings?.autoOpenAddProduct !== false ? 'bg-[#0E9F6E]' : 'bg-slate-400'}`}
+                  >
+                    <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow ${settings?.autoOpenAddProduct !== false ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                  </button>
+                </div>
+
                 {/* Currency Symbol setting */}
                 <div className="flex items-center justify-between">
                   <div className="flex items-start gap-3.5">
@@ -1004,6 +1022,41 @@ export default function App() {
 // ==========================================
 // CUSTOMER SECURE PORTAL VIEW COMPONENT
 // ==========================================
+const compressBase64Image = (base64Str: string, maxWidth = 600, maxHeight = 600): Promise<string> => {
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.src = base64Str;
+    img.onload = () => {
+      const canvas = document.createElement('canvas');
+      let width = img.width;
+      let height = img.height;
+
+      if (width > maxWidth || height > maxHeight) {
+        if (width > height) {
+          height = Math.round((height * maxWidth) / width);
+          width = maxWidth;
+        } else {
+          width = Math.round((width * maxHeight) / height);
+          height = maxHeight;
+        }
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      if (ctx) {
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.6));
+      } else {
+        resolve(base64Str);
+      }
+    };
+    img.onerror = () => {
+      resolve(base64Str);
+    };
+  });
+};
+
 interface PortalProps {
   customerId: string;
 }
@@ -1016,6 +1069,7 @@ function CustomerPortalView({ customerId }: PortalProps) {
   const [activeSubTab, setActiveSubTab] = useState<'bills' | 'pay' | 'update'>('bills');
   
   // Update Form fields
+  const [portalName, setPortalName] = useState('');
   const [email, setEmail] = useState('');
   const [location, setLocation] = useState('');
   const [updateSubmitted, setUpdateSubmitted] = useState(false);
@@ -1035,6 +1089,7 @@ function CustomerPortalView({ customerId }: PortalProps) {
         const foundCustomer = customersList.find(c => c.id === customerId);
         if (foundCustomer) {
           setCustomer(foundCustomer);
+          setPortalName(foundCustomer.name || '');
           setEmail(foundCustomer.email || '');
           setLocation(foundCustomer.location || '');
           setProofAmount(foundCustomer.totalDues.toString());
@@ -1059,6 +1114,7 @@ function CustomerPortalView({ customerId }: PortalProps) {
       const payload: Partial<Customer> = {
         ...customer,
         pendingUpdates: {
+          name: portalName.trim(),
           email: email.trim(),
           location: location.trim(),
           timestamp: new Date().toISOString()
@@ -1081,7 +1137,10 @@ function CustomerPortalView({ customerId }: PortalProps) {
     const file = e.target.files?.[0];
     if (file) {
       const reader = new FileReader();
-      reader.onloadend = () => setProofFile(reader.result as string);
+      reader.onloadend = async () => {
+        const compressed = await compressBase64Image(reader.result as string);
+        setProofFile(compressed);
+      };
       reader.readAsDataURL(file);
     }
   };
@@ -1171,7 +1230,7 @@ function CustomerPortalView({ customerId }: PortalProps) {
         <div className="mt-6 bg-[#EAE9E4] p-5 rounded-sm border border-[#1A1A18]/5 flex justify-between items-center shadow-sm">
           <div>
             <span className="text-[8px] uppercase font-mono text-[#1A1A18]/60 block tracking-[0.15em]">Outstanding Balance</span>
-            <span className="text-2xl font-serif font-extrabold text-[#1A1A18] mt-1 block">₹{customer.totalDues.toLocaleString()}</span>
+            <span className="text-2xl font-sans font-bold text-[#1A1A18] mt-1 block">₹{customer.totalDues.toLocaleString()}</span>
           </div>
           <button 
             onClick={() => setActiveSubTab('pay')}
@@ -1219,7 +1278,7 @@ function CustomerPortalView({ customerId }: PortalProps) {
               myInvoices.map(invoice => (
                 <a 
                   key={invoice.id} 
-                  href={`/invoice/${invoice.id}.html`}
+                  href={`/?invoice=${invoice.id}`}
                   target="_blank" 
                   rel="noreferrer"
                   className="block bg-[#FAF9F6] p-4 rounded-sm border border-[#1A1A18]/10 hover:border-[#1A1A18]/25 hover:shadow-sm transition-all cursor-pointer"
@@ -1367,10 +1426,27 @@ function CustomerPortalView({ customerId }: PortalProps) {
           <form onSubmit={handleUpdateContact} className="bg-[#FAF9F6] p-5 rounded-sm border border-[#1A1A18]/10 space-y-4 text-left animate-in fade-in duration-200">
             <h3 className="text-xs font-mono text-[#1A1A18] uppercase tracking-wider border-b border-[#1A1A18]/5 pb-2">Update Contact Registration</h3>
             <p className="text-[10px] text-[#1A1A18]/60 font-semibold leading-relaxed">
-              Correct or modify your active delivery records or email. Any update will be submitted directly to the billing register for review.
+              Correct or modify your registered name, active delivery records, or email. Any update will be submitted directly to the billing register for review.
             </p>
 
             <div className="space-y-4 pt-2">
+              <div>
+                <label className="text-[9px] uppercase font-mono tracking-wider text-[#1A1A18]/50 block mb-1">Customer Name</label>
+                <div className="relative border-b border-[#1A1A18]/10 focus-within:border-[#1A1A18] transition-colors py-1">
+                  <input 
+                    type="text"
+                    placeholder="e.g. John Doe"
+                    value={portalName}
+                    onChange={e => { setPortalName(e.target.value); setUpdateSubmitted(false); }}
+                    className="w-full bg-transparent border-0 outline-none text-xs text-[#1A1A18]"
+                    required
+                  />
+                  <span className="absolute right-0 top-1/2 -translate-y-1/2 text-[#1A1A18]/30">
+                    <UserIcon size={15} />
+                  </span>
+                </div>
+              </div>
+
               <div>
                 <label className="text-[9px] uppercase font-mono tracking-wider text-[#1A1A18]/50 block mb-1">Email Address</label>
                 <div className="relative border-b border-[#1A1A18]/10 focus-within:border-[#1A1A18] transition-colors py-1">

@@ -51,6 +51,7 @@ export interface StoreSettings {
   recycleBinRetentionDays: number;
   directPrintEnabled: boolean;
   scannerPreference: 'phone' | 'machine' | 'both'; // New: Scanner preference
+  autoOpenAddProduct?: boolean;
 
   nasUrl?: string;
   syncToNas?: boolean;
@@ -90,6 +91,7 @@ export interface Customer {
   payments?: Payment[];
   isWholesaler?: boolean;
   pendingUpdates?: {
+    name?: string;
     email?: string;
     location?: string;
     timestamp: string;
