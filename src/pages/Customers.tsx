@@ -126,7 +126,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
           location: customer.pendingUpdates.location || customer.location
       };
       
-      delete updated.pendingUpdates;
+      updated.pendingUpdates = undefined;
       
       await StoreService.upsertCustomer(updated);
       await loadData();
@@ -136,7 +136,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       const updated: Customer = {
           ...customer
       };
-      delete updated.pendingUpdates;
+      updated.pendingUpdates = undefined;
       
       await StoreService.upsertCustomer(updated);
       await loadData();

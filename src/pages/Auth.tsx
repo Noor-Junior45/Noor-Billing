@@ -204,7 +204,7 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPrivacy, onOpenTerms 
       if (errMsg.toLowerCase().includes('suspended') || errMsg.toLowerCase().includes('permission')) {
         msg = 'Cloud service is temporarily suspended. Please use the "Run Sandbox Demo Mode" button below to access your local offline database.';
       } else if (err.status === 400 || errMsg.includes('Invalid login credentials')) {
-        msg = 'Invalid login credentials';
+        msg = 'Invalid login credentials. If you do not have an account yet, please click "Don\'t have an account? Sign Up" below to register, or click "Run Sandbox Demo Mode" to run offline.';
       } else if (errMsg.includes('User already registered')) {
         msg = 'This email is already registered. Please sign in instead.';
       } else if (errMsg.includes('Password should be at least')) {
