@@ -113,6 +113,44 @@ export default function App() {
     setLegalView(null);
   };
 
+  // PWA download / installation state
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstallable, setIsInstallable] = useState(true); // Default true so they can always trigger the guide/download instructions
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+      setIsInstallable(true);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // If already in standalone mode (installed as an app)
+    if (window.matchMedia('(display-mode: standalone)').matches) {
+      setIsInstallable(false);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (deferredPrompt) {
+      deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        console.log('User accepted the PWA install prompt');
+      }
+      setDeferredPrompt(null);
+      setIsInstallable(false);
+    } else {
+      setShowInstallGuide(true);
+    }
+  };
+
   useEffect(() => {
     if (!isProfileOpen) {
       setShowSignOutConfirm(false);
@@ -892,6 +930,67 @@ export default function App() {
           <Button onClick={() => setShowTermsOfService(false)} className="bg-black text-white hover:bg-black/90 font-bold px-5">
             Close
           </Button>
+        </div>
+      </Modal>
+
+      {/* Install PWA App Guide Modal */}
+      <Modal
+        isOpen={showInstallGuide}
+        onClose={() => setShowInstallGuide(false)}
+        title="Download / Install Noor Billing"
+        className="!max-w-md"
+      >
+        <div className="space-y-4 text-slate-700 text-xs">
+          <div className="flex justify-center pb-2">
+            <img 
+              src="https://lh3.googleusercontent.com/p/AF1QipPlp0QUwcp2FOnTGiGNf5fqWnskinCj4QxRKa3o=s1360-w1360-h1020-rw" 
+              alt="Noor Billing Logo" 
+              className="w-16 h-16 rounded-xl object-cover border border-[#1A1A18]/10 shadow-sm shrink-0"
+              referrerPolicy="no-referrer"
+            />
+          </div>
+          <p className="text-center font-bold text-slate-950 text-sm">Download Noor Billing onto your Device</p>
+          <p className="leading-relaxed">
+            You can install Noor Billing as a fully offline-capable app on your computer, tablet, or smartphone.
+          </p>
+          
+          <div className="space-y-3 pt-2">
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <h4 className="font-bold text-slate-900 flex items-center gap-1.5 mb-1">
+                <span className="w-5 h-5 bg-black text-white text-[10px] rounded-full flex items-center justify-center">1</span>
+                On Desktop (Chrome, Edge, Brave)
+              </h4>
+              <p className="pl-6 text-[11px] text-slate-600 leading-normal">
+                Click the <strong className="text-slate-950">Install App</strong> button in the navbar, or look for the install icon (<strong className="text-slate-950">⊕</strong>) in your browser's address bar to download instantly.
+              </p>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <h4 className="font-bold text-slate-900 flex items-center gap-1.5 mb-1">
+                <span className="w-5 h-5 bg-black text-white text-[10px] rounded-full flex items-center justify-center">2</span>
+                On iPhone & iPad (iOS Safari)
+              </h4>
+              <p className="pl-6 text-[11px] text-slate-600 leading-normal">
+                Tap the <strong className="text-slate-950">Share</strong> button (box with an up arrow) at the bottom of Safari, scroll down and tap <strong className="text-slate-950">"Add to Home Screen"</strong>.
+              </p>
+            </div>
+
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+              <h4 className="font-bold text-slate-900 flex items-center gap-1.5 mb-1">
+                <span className="w-5 h-5 bg-black text-white text-[10px] rounded-full flex items-center justify-center">3</span>
+                On Android Phone & Tablet (Chrome)
+              </h4>
+              <p className="pl-6 text-[11px] text-slate-600 leading-normal">
+                Tap the browser's menu button (three vertical dots) near the top-right, and tap <strong className="text-slate-950">"Install app"</strong> or <strong className="text-slate-950">"Add to Home screen"</strong>.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex justify-end pt-4 border-t border-slate-100">
+            <Button onClick={() => setShowInstallGuide(false)} className="bg-black text-white hover:bg-black/90 font-bold px-5">
+              Got It
+            </Button>
+          </div>
         </div>
       </Modal>
     </div>

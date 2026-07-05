@@ -75,14 +75,21 @@ export const PrivacyPolicy: React.FC<LegalDocProps> = ({ standalone = false }) =
       <section className="space-y-2">
         <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">6. Third-Party Sharing</h3>
         <p>
-          We do not sell, rent, trade, or distribute your customer lists or transaction ledgers to any marketing agencies or external third parties. Data is processed solely through your designated cloud databases or within your local hardware storage.
+          We do not sell, rent, trade, or distribute your customer lists, sales records, or transaction ledgers to any marketing agencies or external third parties. Data is processed solely through your designated cloud databases or within your local hardware storage.
         </p>
       </section>
 
       <section className="space-y-2">
-        <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">7. Your Rights & Choice</h3>
+        <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">7. Analytics & Tracking</h3>
         <p>
-          You have full authority to modify, export, or erase your entire database. You can perform a complete system wipe using the <strong>"Factory Reset"</strong> feature inside the settings dropdown, which permanently removes all local cached data, user tokens, and offline inventories on your device.
+          We use <strong>Google Analytics</strong> (specifically Google tag ID G-X8GP03PX0T) to collect anonymous, aggregated usage statistics (such as page views, button interaction rates, session duration, and device configurations). This information helps us optimize the billing interface, enhance security, and resolve functional layout bugs. Google Analytics uses cookies to gather this data, which is governed by Google's Privacy Policy. No sensitive operational data, personal inventory logs, customer passwords, or financial transactions are ever sent to Google Analytics.
+        </p>
+      </section>
+
+      <section className="space-y-2">
+        <h3 className="font-bold text-slate-900 text-xs uppercase tracking-wide">8. Your Rights & Choice</h3>
+        <p>
+          You have full authority to modify, export, or erase your entire database. You can perform a complete system wipe using the <strong>"Factory Reset"</strong> feature inside the settings dropdown, which permanently removes all local cached data, user tokens, and offline inventories on your device. You may also disable cookies or use ad blockers to prevent Google Analytics tracking.
         </p>
       </section>
 

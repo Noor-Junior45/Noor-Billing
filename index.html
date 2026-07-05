@@ -3,9 +3,36 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Noor Warehouse Companion</title>
+    <title>Noor Billing</title>
+    
+    <!-- Google tag (gtag.js) -->
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-X8GP03PX0T"></script>
+    <script>
+      window.dataLayer = window.dataLayer || [];
+      function gtag(){dataLayer.push(arguments);}
+      gtag('js', new Date());
+
+      gtag('config', 'G-X8GP03PX0T');
+    </script>
+
+    <!-- PWA Meta tags and Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+    <meta name="theme-color" content="#FAF7F2" />
+    <link rel="apple-touch-icon" href="https://lh3.googleusercontent.com/p/AF1QipPlp0QUwcp2FOnTGiGNf5fqWnskinCj4QxRKa3o=s192-rw" />
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js" crossorigin="anonymous"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.29/jspdf.plugin.autotable.min.js" crossorigin="anonymous"></script>
+    
+    <!-- Register Service Worker -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('Service Worker registered successfully!', reg.scope))
+            .catch(err => console.log('Service Worker registration failed:', err));
+        });
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>

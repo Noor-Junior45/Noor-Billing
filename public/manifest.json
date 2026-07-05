@@ -1,0 +1,22 @@
+{
+  "short_name": "Noor Billing",
+  "name": "Noor Billing",
+  "description": "Smart point of sale & warehouse companion app.",
+  "icons": [
+    {
+      "src": "https://lh3.googleusercontent.com/p/AF1QipPlp0QUwcp2FOnTGiGNf5fqWnskinCj4QxRKa3o=s192-rw",
+      "type": "image/png",
+      "sizes": "192x192"
+    },
+    {
+      "src": "https://lh3.googleusercontent.com/p/AF1QipPlp0QUwcp2FOnTGiGNf5fqWnskinCj4QxRKa3o=s512-rw",
+      "type": "image/png",
+      "sizes": "512x512"
+    }
+  ],
+  "start_url": "/",
+  "background_color": "#FAF7F2",
+  "theme_color": "#000000",
+  "display": "standalone",
+  "orientation": "portrait"
+}
