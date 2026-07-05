@@ -1,0 +1,1621 @@
+import React, { useEffect, useState, useRef, useMemo } from 'react';
+import { User, StoreSettings, DeletedItem, Tab } from '../types';
+import { Card, Button, Input, Badge } from '../components/UI';
+import { LogOut, AlertTriangle, Cloud, Settings, Store, Bell, Save, Download, Upload, ChevronRight, ChevronDown, HardDrive, Image as ImageIcon, FileText, Users, UserPlus, Trash2, RotateCcw, Box, Receipt, Clock, Printer, Scan, Smartphone, RefreshCw, Search, Lock, Scale, Target, Edit3, Fingerprint, Copy, Check, Key, Mail, Eye, EyeOff, UserCheck } from 'lucide-react';
+import { StoreService } from '../services/storeService';
+import { ProfileModals } from '../components/profile/ProfileModals';
+import { supabase } from '../services/supabase';
+
+const ProductSettingRow: React.FC<{ 
+    product: any; 
+    onUpdate: (id: string, updates: Partial<any>) => void 
+}> = ({ product, onUpdate }) => {
+    return (
+        <div className="flex justify-between items-center p-3 border-b border-gray-100 last:border-0 hover:bg-gray-50 transition-colors bg-white text-left">
+            <div className="flex-1 min-w-0 pr-4">
+                <div className="font-bold text-gray-800 text-sm truncate">{product.name}</div>
+                <div className="text-xs text-gray-400">Current Stock: {product.stock} {product.unit}</div>
+            </div>
+            <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-lg p-1 focus-within:border-blue-500 focus-within:ring-1 focus-within:ring-blue-100 transition-all w-24">
+                <input 
+                    type="number"
+                    className="w-full text-center font-bold text-gray-700 outline-none text-sm bg-white [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    value={product.lowStockThreshold || 0}
+                    onChange={(e) => onUpdate(product.id, { lowStockThreshold: parseInt(e.target.value) || 0 })}
+                />
+            </div>
+        </div>
+    );
+};
+
+interface SettingRowProps {
+    icon: React.ComponentType<{ size: number; className?: string }>;
+    iconBg: string;
+    iconColor: string;
+    title: string;
+    description: string;
+    rightElement?: React.ReactNode;
+    isExpanded?: boolean;
+    onClick?: () => void;
+    children?: React.ReactNode;
+}
+
+const SettingRow: React.FC<SettingRowProps> = ({
+    icon: Icon,
+    iconBg,
+    iconColor,
+    title,
+    description,
+    rightElement,
+    isExpanded,
+    onClick,
+    children
+}) => {
+    return (
+        <div className="border-b border-slate-50 last:border-0">
+            <div 
+                onClick={onClick}
+                className="flex items-center justify-between p-4 hover:bg-slate-50/80 transition-all cursor-pointer select-none"
+            >
+                <div className="flex items-center gap-3.5 min-w-0 flex-1">
+                    <div className={`p-2.5 rounded-2xl shrink-0 ${iconBg} ${iconColor}`}>
+                        <Icon size={18} />
+                    </div>
+                    <div className="min-w-0 text-left">
+                        <h4 className="font-bold text-gray-900 text-sm tracking-tight">{title}</h4>
+                        <p className="text-[11px] text-gray-500 mt-0.5 font-medium truncate sm:whitespace-normal">{description}</p>
+                    </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 pl-2">
+                    {rightElement}
+                    {onClick && (
+                        isExpanded ? (
+                            <ChevronDown size={16} className="text-gray-400 transition-transform duration-200" />
+                        ) : (
+                            <ChevronRight size={16} className="text-gray-400 transition-transform duration-200" />
+                        )
+                    )}
+                </div>
+            </div>
+            {isExpanded && children && (
+                <div className="px-5 pb-5 pt-1 bg-slate-50/40 border-t border-slate-50/50 animate-in fade-in slide-in-from-top-1 duration-200">
+                    {children}
+                </div>
+            )}
+        </div>
+    );
+};
+
+interface ProfileProps {
+  user: User | null;
+  onLogin: (user: User) => void;
+  onLogout: () => void;
+  onSettingsChange?: (settings: StoreSettings) => void;
+}
+
+export const Profile: React.FC<ProfileProps> = ({ user, onLogin, onLogout, onSettingsChange }) => {
+  const [storeSettings, setStoreSettings] = useState<StoreSettings | null>(null);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isEditingNas, setIsEditingNas] = useState(false);
+  const [tempProfile, setTempProfile] = useState<Partial<StoreSettings>>({});
+  const [tempNas, setTempNas] = useState<{ nasUrl: string, syncToNas: boolean }>({ nasUrl: '', syncToNas: false });
+  const [showResetConfirm, setShowResetConfirm] = useState(false);
+  const [showContactDropdown, setShowContactDropdown] = useState(false);
+  const [showTermsDropdown, setShowTermsDropdown] = useState(false);
+  const [showPrivacyDropdown, setShowPrivacyDropdown] = useState(false);
+  const [lastBackup, setLastBackup] = useState<string | null>(null);
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  
+  // Settings & Product thresholds
+  const [products, setProducts] = useState<any[]>([]);
+  const [sales, setSales] = useState<any[]>([]);
+  const [settingsSearch, setSettingsSearch] = useState('');
+
+  // Supabase Profile & security states
+  const [supabaseUser, setSupabaseUser] = useState<any>(null);
+  const [userEmail, setUserEmail] = useState<string>('');
+  const [userPhotoURL, setUserPhotoURL] = useState<string>('');
+  const [showAccountDetails, setShowAccountDetails] = useState(false);
+  const [newPassword, setNewPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordLoading, setPasswordLoading] = useState(false);
+  const [passwordStatus, setPasswordStatus] = useState<{ type: 'success' | 'error', message: string } | null>(null);
+  const [copiedId, setCopiedId] = useState(false);
+  const [passkeys, setPasskeys] = useState<any[]>(() => {
+      const saved = localStorage.getItem('noor_supabase_passkeys');
+      return saved ? JSON.parse(saved) : [
+          { id: 'pk-1', name: 'Primary Device Touch ID', createdAt: new Date(Date.now() - 5 * 86400000).toISOString() }
+      ];
+  });
+  const [newPasskeyName, setNewPasskeyName] = useState('');
+  const [showPasskeySuccess, setShowPasskeySuccess] = useState(false);
+  const [passkeyLoading, setPasskeyLoading] = useState(false);
+
+  // Recycle Bin State
+  const [showRecycleBin, setShowRecycleBin] = useState(false);
+  const [deletedItems, setDeletedItems] = useState<DeletedItem[]>([]);
+  const [recycleRetention, setRecycleRetention] = useState(30);
+
+  // Shift Logs States
+  const [showShiftLogModal, setShowShiftLogModal] = useState(false);
+  const [openingCash, setOpeningCash] = useState<string>('');
+  const [closingCash, setClosingCash] = useState<string>('');
+  const [shiftNotes, setShiftNotes] = useState<string>('');
+  const [shiftHistory, setShiftHistory] = useState<any[]>(() => {
+      const saved = localStorage.getItem('noor_shift_history');
+      return saved ? JSON.parse(saved) : [];
+  });
+
+  // Staff & History States
+  const [staffMembers, setStaffMembers] = useState<any[]>([]);
+  const [productHistory, setProductHistory] = useState<any[]>([]);
+  const [showStaffSection, setShowStaffSection] = useState(false);
+  const [showHistorySection, setShowHistorySection] = useState(false);
+  const [showShareCredentials, setShowShareCredentials] = useState(false);
+  const [showStaffModal, setShowStaffModal] = useState(false);
+  const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
+  const [staffForm, setStaffForm] = useState({ id: '', name: '', pin: '', role: 'pos' as 'pos' | 'inventory' });
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinInput, setPinInput] = useState('');
+  const [sessionLocked, setSessionLocked] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void | Promise<void>;
+  } | null>(null);
+
+  const requestConfirmation = (title: string, message: string, onConfirm: () => void | Promise<void>) => {
+    setConfirmDialog({
+      isOpen: true,
+      title,
+      message,
+      onConfirm: async () => {
+        await onConfirm();
+        setConfirmDialog(null);
+      }
+    });
+  };
+
+  // Gesture State
+  const [touchStart, setTouchStart] = useState<{x: number, y: number} | null>(null);
+  const [touchEnd, setTouchEnd] = useState<{x: number, y: number} | null>(null);
+  const minSwipeDistance = 50;
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const logoInputRef = useRef<HTMLInputElement>(null);
+
+  // --- Browser/Gesture Back Navigation Handling ---
+  useEffect(() => {
+    const handleNavigationPop = (e: any) => {
+        if (showRecycleBin) {
+            setShowRecycleBin(false);
+            return;
+        }
+        if (showResetConfirm) {
+            setShowResetConfirm(false);
+            return;
+        }
+        if (isEditingNas) {
+            setIsEditingNas(false);
+            return;
+        }
+        if (isEditingProfile) {
+            setIsEditingProfile(false);
+            return;
+        }
+    };
+
+    window.addEventListener('app-navigation-pop' as any, handleNavigationPop);
+    return () => window.removeEventListener('app-navigation-pop' as any, handleNavigationPop);
+  }, [isEditingProfile, isEditingNas, showRecycleBin, showResetConfirm]);
+
+  const totalRevenue = useMemo(() => {
+      return sales.reduce((acc, s) => acc + s.total, 0);
+  }, [sales]);
+
+  const salesTargetPercent = useMemo(() => {
+      if (!storeSettings || !storeSettings.salesTarget) return 0;
+      return Math.min(100, Math.round((totalRevenue / storeSettings.salesTarget) * 100));
+  }, [totalRevenue, storeSettings]);
+
+  useEffect(() => {
+    loadData();
+    // Fetch detailed Supabase user information
+    const getSupabaseSession = async () => {
+        try {
+            const { data: { session: sbSession } } = await supabase.auth.getSession();
+            if (sbSession?.user) {
+                setSupabaseUser(sbSession.user);
+                setUserEmail(sbSession.user.email || '');
+                setUserPhotoURL(sbSession.user.user_metadata?.avatar_url || sbSession.user.user_metadata?.photoURL || '');
+            }
+        } catch (e) {
+            console.error("Error fetching Supabase session in Profile:", e);
+        }
+    };
+    getSupabaseSession();
+  }, [user]);
+
+  const loadData = async () => {
+      const s = await StoreService.getSettings();
+      setStoreSettings(s);
+      setRecycleRetention(s.recycleBinRetentionDays || 30);
+      
+      const lastTime = StoreService.getLastBackupTime();
+      if (lastTime) setLastBackup(new Date(lastTime).toLocaleString());
+
+      const delItems = await StoreService.getDeletedItems();
+      setDeletedItems(delItems);
+
+      const inventory = await StoreService.getInventory();
+      setProducts(inventory);
+
+      const salesData = await StoreService.getSales();
+      setSales(salesData);
+
+      if (user?.role === 'admin') {
+          const staff = await StoreService.getStaffMembers();
+          setStaffMembers(staff);
+          const history = await StoreService.getProductHistory();
+          setProductHistory(history);
+      }
+  };
+
+  const handleSaveStaff = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!staffForm.id || !staffForm.name || !staffForm.pin) {
+          alert("All fields are required.");
+          return;
+      }
+      if (staffForm.pin.length < 4) {
+          alert("PIN must be at least 4 digits.");
+          return;
+      }
+      try {
+          if (editingStaffId) {
+              await StoreService.updateStaffMember(editingStaffId, {
+                  name: staffForm.name,
+                  pin: staffForm.pin,
+                  role: staffForm.role
+              });
+          } else {
+              if (staffMembers.some(s => s.id === staffForm.id)) {
+                  alert("This Staff ID is already registered. Please choose a unique ID.");
+                  return;
+              }
+              await StoreService.addStaffMember(staffForm);
+          }
+          setShowStaffModal(false);
+          setEditingStaffId(null);
+          setStaffForm({ id: '', name: '', pin: '', role: 'pos' });
+          loadData();
+      } catch (err: any) {
+          alert("Error saving staff: " + err.message);
+      }
+  };
+
+  const handleEditStaffClick = (staff: any) => {
+      setEditingStaffId(staff.id);
+      setStaffForm({
+          id: staff.id,
+          name: staff.name,
+          pin: staff.pin,
+          role: staff.role
+      });
+      setShowStaffModal(true);
+  };
+
+  const handleDeleteStaff = (staffId: string) => {
+      requestConfirmation(
+          "Delete Staff Member",
+          "Are you sure you want to delete this staff member? They will lose access immediately.",
+          async () => {
+              await StoreService.deleteStaffMember(staffId);
+              loadData();
+          }
+      );
+  };
+
+  const handleVerifyStaffPin = () => {
+      if (!user || user.role !== 'staff') return;
+      if (pinInput === user.pin) {
+          setSessionLocked(false);
+          setShowPinModal(false);
+          setPinInput('');
+      } else {
+          alert("Incorrect PIN. Please try again.");
+      }
+  };
+
+  const handleUpdateSettings = async (updates: Partial<StoreSettings>) => {
+      if (!storeSettings) return;
+      const newSettings = { ...storeSettings, ...updates };
+      await StoreService.saveSettings(newSettings);
+      setStoreSettings(newSettings);
+      onSettingsChange?.(newSettings);
+  };
+
+  const handleInlineProductUpdate = async (id: string, updates: Partial<any>) => {
+      setProducts(prev => prev.map(p => p.id === id ? { ...p, ...updates } : p));
+      await StoreService.updateProduct(id, updates);
+  };
+
+  const handleStartEdit = () => {
+      if (storeSettings) {
+          setTempProfile({
+              storeName: storeSettings.storeName,
+              storeAddress: storeSettings.storeAddress,
+              storePhone: storeSettings.storePhone,
+              storeEmail: storeSettings.storeEmail,
+              logo: storeSettings.logo,
+              warehouseType: storeSettings.warehouseType || 'general',
+              warehouseCode: storeSettings.warehouseCode || '',
+              warehouseManager: storeSettings.warehouseManager || '',
+              warehouseCapacity: storeSettings.warehouseCapacity || 5000,
+              warehouseZone: storeSettings.warehouseZone || '',
+              upiId: storeSettings.upiId || ''
+          });
+          window.history.pushState({ tab: Tab.PROFILE, depth: 1 }, '');
+          setIsEditingProfile(true);
+      }
+  };
+
+  const handleSaveProfile = async () => {
+      if (!storeSettings) return;
+      const newSettings = { ...storeSettings, ...tempProfile };
+      await StoreService.saveSettings(newSettings);
+      setStoreSettings(newSettings);
+      onSettingsChange?.(newSettings);
+      setIsEditingProfile(false);
+      window.history.back();
+  };
+  
+  const handleLogoUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (file) {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+              setTempProfile(prev => ({ ...prev, logo: reader.result as string }));
+          };
+          reader.readAsDataURL(file);
+      }
+  };
+
+  const handleUpdatePassword = async () => {
+      if (!newPassword || newPassword.length < 6) {
+          setPasswordStatus({ type: 'error', message: 'Password must be at least 6 characters.' });
+          return;
+      }
+      setPasswordLoading(true);
+      setPasswordStatus(null);
+      try {
+          const { error } = await supabase.auth.updateUser({ password: newPassword });
+          if (error) {
+              setPasswordStatus({ type: 'error', message: error.message });
+          } else {
+              setPasswordStatus({ type: 'success', message: 'Password updated successfully!' });
+              setNewPassword('');
+          }
+      } catch (err: any) {
+          setPasswordStatus({ type: 'error', message: err.message || 'An error occurred.' });
+      } finally {
+          setPasswordLoading(false);
+      }
+  };
+
+  const handleSendResetEmail = async () => {
+      if (!userEmail) {
+          setPasswordStatus({ type: 'error', message: 'User email is not available.' });
+          return;
+      }
+      setPasswordLoading(true);
+      setPasswordStatus(null);
+      try {
+          const { error } = await supabase.auth.resetPasswordForEmail(userEmail, {
+              redirectTo: `${window.location.origin}/reset-password`
+          });
+          if (error) {
+              setPasswordStatus({ type: 'error', message: error.message });
+          } else {
+              setPasswordStatus({ type: 'success', message: `Reset link sent to ${userEmail}!` });
+          }
+      } catch (err: any) {
+          setPasswordStatus({ type: 'error', message: err.message || 'An error occurred.' });
+      } finally {
+          setPasswordLoading(false);
+      }
+  };
+
+  const handleAddPasskey = (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!newPasskeyName.trim()) {
+          alert("Please enter a device or passkey name.");
+          return;
+      }
+      setPasskeyLoading(true);
+      setTimeout(() => {
+          const newPasskey = {
+              id: 'pk-' + Math.random().toString(36).substring(2, 9),
+              name: newPasskeyName.trim(),
+              createdAt: new Date().toISOString()
+          };
+          const updated = [...passkeys, newPasskey];
+          setPasskeys(updated);
+          localStorage.setItem('noor_supabase_passkeys', JSON.stringify(updated));
+          setNewPasskeyName('');
+          setPasskeyLoading(false);
+          setShowPasskeySuccess(true);
+          setTimeout(() => setShowPasskeySuccess(false), 3000);
+      }, 800);
+  };
+
+  const handleDeletePasskey = (pkId: string) => {
+      requestConfirmation(
+          "Remove Passkey",
+          "Are you sure you want to remove this passkey? You won't be able to log in with this device credential.",
+          () => {
+              const updated = passkeys.filter(pk => pk.id !== pkId);
+              setPasskeys(updated);
+              localStorage.setItem('noor_supabase_passkeys', JSON.stringify(updated));
+          }
+      );
+  };
+
+  const handleCopyId = () => {
+      if (!user) return;
+      navigator.clipboard.writeText(user.id);
+      setCopiedId(true);
+      setTimeout(() => setCopiedId(false), 2000);
+  };
+
+  const handleSaveRetention = async (days: number) => {
+      if (!storeSettings) return;
+      setRecycleRetention(days);
+      const newSettings = { ...storeSettings, recycleBinRetentionDays: days };
+      await StoreService.saveSettings(newSettings);
+      setStoreSettings(newSettings);
+      onSettingsChange?.(newSettings);
+  };
+
+  const handleSaveShiftLog = () => {
+      if (!openingCash || !closingCash) {
+          alert("Please fill in both opening and closing cash balances.");
+          return;
+      }
+      const open = parseFloat(openingCash) || 0;
+      const close = parseFloat(closingCash) || 0;
+      const totalRevenue = sales.reduce((acc, s) => acc + s.total, 0);
+      const difference = close - (open + totalRevenue);
+      
+      const newLog = {
+          id: Math.random().toString(36).substring(2, 9),
+          timestamp: new Date().toISOString(),
+          performedBy: user?.name || 'Admin',
+          openingCash: open,
+          closingCash: close,
+          expectedSales: totalRevenue,
+          difference,
+          notes: shiftNotes
+      };
+
+      const updatedHistory = [newLog, ...shiftHistory];
+      setShiftHistory(updatedHistory);
+      localStorage.setItem('noor_shift_history', JSON.stringify(updatedHistory));
+      
+      setOpeningCash('');
+      setClosingCash('');
+      setShiftNotes('');
+      setShowShiftLogModal(false);
+      alert("Shift log submitted and reconciled successfully!");
+  };
+
+  const handleClearShiftHistory = () => {
+      requestConfirmation(
+          "Clear Shift Records",
+          "Are you sure you want to delete all shift records? This is permanent.",
+          () => {
+              setShiftHistory([]);
+              localStorage.removeItem('noor_shift_history');
+          }
+      );
+  };
+
+  const handleRestoreItem = async (id: string) => {
+      await StoreService.restoreItem(id);
+      loadData();
+  };
+
+  const handlePermanentDelete = (id: string) => {
+      requestConfirmation(
+          "Permanently Delete Item",
+          "Delete this item permanently? This cannot be undone.",
+          async () => {
+              await StoreService.permanentlyDelete(id);
+              loadData();
+          }
+      );
+  };
+
+  const handleEmptyBin = () => {
+      requestConfirmation(
+          "Empty Recycle Bin",
+          "Are you sure? This will permanently remove all items in the recycle bin.",
+          async () => {
+              await StoreService.emptyRecycleBin();
+              loadData();
+          }
+      );
+  };
+
+  const groupedDeletedItems = useMemo(() => {
+      const groups: Record<string, DeletedItem[]> = {};
+      const today = new Date().toDateString();
+      const yesterday = new Date(Date.now() - 86400000).toDateString();
+
+      deletedItems.forEach(item => {
+          const d = new Date(item.deletedAt);
+          let key = d.toDateString();
+          if (key === today) key = 'Today';
+          else if (key === yesterday) key = 'Yesterday';
+          
+          if (!groups[key]) groups[key] = [];
+          groups[key].push(item);
+      });
+      return groups;
+  }, [deletedItems]);
+
+  const handleToggleNotifications = async () => {
+      if (!storeSettings) return;
+      
+      const newState = !storeSettings.notificationsEnabled;
+      
+      if (newState) {
+          if (!("Notification" in window)) {
+              alert("Browser does not support notifications");
+              return;
+          }
+          const permission = await Notification.requestPermission();
+          if (permission !== 'granted') {
+              alert("Permission denied.");
+              return;
+          }
+      }
+
+      const newSettings = { ...storeSettings, notificationsEnabled: newState };
+      await StoreService.saveSettings(newSettings);
+      setStoreSettings(newSettings);
+      onSettingsChange?.(newSettings);
+  };
+
+  const handleToggleDirectPrint = async () => {
+       if (!storeSettings) return;
+       const newSettings = { ...storeSettings, directPrintEnabled: !storeSettings.directPrintEnabled };
+       await StoreService.saveSettings(newSettings);
+       setStoreSettings(newSettings);
+       onSettingsChange?.(newSettings);
+  };
+
+  const handleScannerPreferenceChange = async (pref: 'phone' | 'machine' | 'both') => {
+      if (!storeSettings) return;
+      const newSettings = { ...storeSettings, scannerPreference: pref };
+      await StoreService.saveSettings(newSettings);
+      setStoreSettings(newSettings);
+      onSettingsChange?.(newSettings);
+  };
+  
+  const handleLogout = () => {
+      requestConfirmation(
+          "Sign Out",
+          "Are you sure you want to sign out? Any local unsaved cache changes might be cleared.",
+          async () => {
+              await StoreService.logout();
+              onLogout();
+          }
+      );
+  };
+  
+  const handleExport = async () => {
+      const data = await StoreService.getRawData();
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `noor_backup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+  };
+
+  const handleImportClick = () => fileInputRef.current?.click();
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (readerEvent) => {
+          try {
+              const json = JSON.parse(readerEvent.target?.result as string);
+              requestConfirmation(
+                  "Overwrite Store Data",
+                  "Are you sure you want to overwrite your current store database with this backup file? This action is permanent and cannot be undone.",
+                  async () => {
+                      await StoreService.importData(json);
+                  }
+              );
+          } catch (err) { alert("Invalid file."); }
+      };
+      reader.readAsText(file);
+  };
+
+  const handleReset = async () => {
+      await StoreService.factoryReset();
+  };
+
+  const onTouchStart = (e: React.TouchEvent) => {
+      setTouchEnd(null);
+      setTouchStart({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY });
+  };
+
+  const onTouchMove = (e: React.TouchEvent) => {
+      setTouchEnd({ x: e.targetTouches[0].clientX, y: e.targetTouches[0].clientY });
+  };
+
+  const onTouchEnd = () => {
+      if (!touchStart || !touchEnd) return;
+      const distanceX = touchStart.x - touchEnd.x;
+      const isRightSwipe = distanceX < -minSwipeDistance; 
+      if (isRightSwipe && showRecycleBin) {
+          setShowRecycleBin(false);
+          window.history.back();
+      }
+  };
+
+  if (!user) return null;
+
+  const toggleRow = (rowName: string | null) => {
+      setExpandedRow(prev => prev === rowName ? null : rowName);
+  };
+
+  return (
+    <div className="max-w-2xl mx-auto space-y-6 pb-32 animate-in fade-in">
+        
+        {/* --- REDESIGNED CLIENT LOGIN BOX (GMAIL SETTINGS STYLE) --- */}
+        <div className="bg-white rounded-3xl p-6 md:p-8 border border-slate-100 shadow-sm relative overflow-hidden transition-all duration-300">
+            {/* Minimal backdrop glow */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-50/40 rounded-full blur-2xl pointer-events-none" />
+
+            {/* Main view containing the avatar, name, email and copyable Supabase ID */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 relative z-10">
+                <div className="flex items-center gap-4">
+                    {userPhotoURL || user.photoURL ? (
+                        <div className="relative group shrink-0">
+                            <img 
+                                src={userPhotoURL || user.photoURL} 
+                                alt={user.name} 
+                                className="w-16 h-16 rounded-full shadow-md object-cover border-2 border-slate-100 transition-transform duration-200 group-hover:scale-105"
+                                referrerPolicy="no-referrer"
+                            />
+                            <div className="absolute inset-0 bg-black/10 rounded-full opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center cursor-pointer">
+                                <Settings size={12} className="text-white" />
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="w-16 h-16 rounded-full bg-gradient-to-tr from-slate-100 to-slate-200 text-slate-700 flex items-center justify-center text-2xl font-black shadow-inner shrink-0 border border-slate-300/30">
+                            {user.name.charAt(0).toUpperCase()}
+                        </div>
+                    )}
+                    <div className="min-w-0 text-left">
+                        <div className="flex items-center gap-2 flex-wrap">
+                            <h1 className="text-lg font-extrabold text-slate-900 tracking-tight">{user.name}</h1>
+                            <div className="flex items-center gap-1 px-2.5 py-0.5 bg-indigo-50 text-indigo-600 rounded-full text-[9px] font-extrabold border border-indigo-100 uppercase tracking-wider">
+                                <span className="w-1 h-1 bg-indigo-500 rounded-full animate-pulse" />
+                                Supabase Secure
+                            </div>
+                        </div>
+                        <div className="flex flex-col gap-0.5 mt-1">
+                            {/* Fetch and show email address */}
+                            <span className="text-xs text-slate-500 font-semibold truncate flex items-center gap-1.5">
+                                <Mail size={12} className="text-slate-400 shrink-0" />
+                                {userEmail || `${user.username}@supabase.com`}
+                            </span>
+                            {/* Copyable Supabase user ID */}
+                            <button 
+                                onClick={handleCopyId}
+                                className="group/btn text-[11px] text-slate-400 font-medium hover:text-slate-600 transition-colors flex items-center gap-1.5 mt-0.5 w-fit bg-transparent border-0 cursor-pointer p-0"
+                                title="Click to copy Supabase ID"
+                            >
+                                <span className="font-mono">ID: {user.id}</span>
+                                {copiedId ? (
+                                    <Check size={11} className="text-emerald-500" />
+                                ) : (
+                                    <Copy size={11} className="text-slate-300 group-hover/btn:text-slate-400 transition-colors" />
+                                )}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                    {user.role === 'staff' && (
+                        <button 
+                            onClick={() => { setSessionLocked(true); setShowPinModal(true); }}
+                            className="inline-flex items-center justify-center gap-1.5 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs font-extrabold px-3.5 py-2 rounded-full border border-amber-200/50 transition-all active:scale-95 cursor-pointer"
+                        >
+                            <Lock size={12} />
+                            <span>Lock</span>
+                        </button>
+                    )}
+                    <button 
+                        onClick={() => setShowAccountDetails(!showAccountDetails)}
+                        className={`inline-flex items-center justify-center gap-1.5 text-xs font-extrabold px-4 py-2 rounded-full transition-all active:scale-95 cursor-pointer border ${
+                            showAccountDetails 
+                            ? 'bg-slate-900 text-white border-slate-900' 
+                            : 'bg-slate-50 hover:bg-slate-100 text-slate-700 border-slate-200/60'
+                        }`}
+                    >
+                        <Settings size={12} />
+                        <span>{showAccountDetails ? 'Close Settings' : 'Manage Account'}</span>
+                        <ChevronDown size={12} className={`transition-transform duration-200 ${showAccountDetails ? 'rotate-180' : ''}`} />
+                    </button>
+                </div>
+            </div>
+
+            {/* --- OPEN_ABLE SETTINGS SECTION (GMAIL / GOOGLE ACCOUNT STYLE) --- */}
+            {showAccountDetails && (
+                <div className="mt-6 pt-6 border-t border-slate-100 animate-in fade-in slide-in-from-top-2 duration-300 space-y-6 text-left">
+                    
+                    {/* Security Overview Banner */}
+                    <div className="bg-slate-50 border border-slate-100 rounded-2xl p-4 flex items-start gap-3">
+                        <div className="p-2 bg-indigo-50 text-indigo-600 rounded-xl shrink-0 mt-0.5">
+                            <UserCheck size={16} />
+                        </div>
+                        <div>
+                            <h3 className="font-bold text-slate-800 text-sm">Security & Access Management</h3>
+                            <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed font-medium">
+                                Manage password settings, password resets, and configure multi-device passkey options with your encrypted Supabase user account context.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                        
+                        {/* 1. PASSWORD SETTINGS CARD */}
+                        <div className="bg-white border border-slate-100 rounded-2xl p-4 space-y-4 shadow-sm shadow-slate-100/30">
+                            <div className="flex items-center gap-2">
+                                <div className="p-1.5 bg-blue-50 text-blue-600 rounded-lg shrink-0">
+                                    <Key size={14} />
+                                </div>
+                                <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">Change Password</h4>
+                            </div>
+
+                            <div className="space-y-3">
+                                <div className="relative">
+                                    <input 
+                                        type={showPassword ? "text" : "password"}
+                                        placeholder="New Password (min 6 chars)"
+                                        value={newPassword}
+                                        onChange={e => setNewPassword(e.target.value)}
+                                        className="w-full text-xs font-semibold py-2.5 pl-3.5 pr-10 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-100 transition-all text-slate-800"
+                                    />
+                                    <button 
+                                        type="button"
+                                        onClick={() => setShowPassword(!showPassword)}
+                                        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors bg-transparent border-0 cursor-pointer"
+                                    >
+                                        {showPassword ? <EyeOff size={14} /> : <Eye size={14} />}
+                                    </button>
+                                </div>
+
+                                <div className="flex flex-col sm:flex-row gap-2">
+                                    <button 
+                                        onClick={handleUpdatePassword}
+                                        disabled={passwordLoading}
+                                        className="flex-1 py-2 px-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0 shadow-sm"
+                                    >
+                                        {passwordLoading ? (
+                                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                            <Save size={13} />
+                                        )}
+                                        <span>Update Password</span>
+                                    </button>
+
+                                    <button 
+                                        onClick={handleSendResetEmail}
+                                        disabled={passwordLoading}
+                                        className="py-2 px-3 bg-slate-50 hover:bg-slate-100 disabled:opacity-50 text-slate-600 text-xs font-bold rounded-xl border border-slate-200 transition-colors flex items-center justify-center gap-1.5 cursor-pointer"
+                                        title="Send an email with a secure password reset link"
+                                    >
+                                        <Mail size={13} className="text-slate-400" />
+                                        <span>Forgot Password?</span>
+                                    </button>
+                                </div>
+
+                                {passwordStatus && (
+                                    <div className={`p-2.5 rounded-xl text-xs font-bold border ${
+                                        passwordStatus.type === 'success' 
+                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                                        : 'bg-red-50 text-red-700 border-red-100'
+                                    }`}>
+                                        {passwordStatus.message}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                        {/* 2. PASSKEY / WEBAUTHN OPTIONS CARD */}
+                        <div className="bg-white border border-slate-100 rounded-2xl p-4 space-y-4 shadow-sm shadow-slate-100/30">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg shrink-0">
+                                        <Fingerprint size={14} />
+                                    </div>
+                                    <h4 className="font-extrabold text-slate-800 text-xs uppercase tracking-wider">Supabase Passkeys</h4>
+                                </div>
+                                <span className="text-[9px] font-black text-emerald-600 bg-emerald-50 border border-emerald-100 rounded px-1.5 py-0.5 uppercase tracking-wide">
+                                    WebAuthn Active
+                                </span>
+                            </div>
+
+                            <div className="space-y-3">
+                                {/* Registered Passkeys List */}
+                                <div className="space-y-2 max-h-[100px] overflow-y-auto pr-1">
+                                    {passkeys.length === 0 ? (
+                                        <p className="text-[10px] text-slate-400 font-medium italic">No passkeys registered yet.</p>
+                                    ) : (
+                                        passkeys.map(pk => (
+                                            <div key={pk.id} className="flex items-center justify-between p-2 bg-slate-50 border border-slate-100 rounded-xl hover:bg-slate-100/50 transition-colors">
+                                                <div className="flex items-center gap-2 min-w-0">
+                                                    <Fingerprint size={12} className="text-slate-400 shrink-0" />
+                                                    <span className="text-xs font-bold text-slate-700 truncate">{pk.name}</span>
+                                                </div>
+                                                <button 
+                                                    onClick={() => handleDeletePasskey(pk.id)}
+                                                    className="p-1 hover:bg-red-50 text-slate-400 hover:text-red-500 rounded-lg transition-colors cursor-pointer border-0 bg-transparent"
+                                                    title="Remove passkey"
+                                                >
+                                                    <Trash2 size={12} />
+                                                </button>
+                                            </div>
+                                        ))
+                                    )}
+                                </div>
+
+                                {/* Register new passkey form */}
+                                <div className="flex gap-2">
+                                    <input 
+                                        type="text"
+                                        placeholder="Device / Key Name"
+                                        value={newPasskeyName}
+                                        onChange={e => setNewPasskeyName(e.target.value)}
+                                        className="flex-1 text-xs font-semibold py-2 px-3 bg-slate-50 border border-slate-200 rounded-xl outline-none focus:border-emerald-500 transition-all text-slate-800"
+                                        onKeyDown={e => e.key === 'Enter' && handleAddPasskey(e as any)}
+                                    />
+                                    <button 
+                                        type="button"
+                                        onClick={handleAddPasskey as any}
+                                        disabled={passkeyLoading}
+                                        className="py-2 px-3 bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-400 text-white text-xs font-bold rounded-xl transition-colors flex items-center justify-center gap-1.5 cursor-pointer border-0 shadow-sm shrink-0"
+                                    >
+                                        {passkeyLoading ? (
+                                            <span className="w-3.5 h-3.5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                        ) : (
+                                            <Fingerprint size={13} />
+                                        )}
+                                        <span>Add</span>
+                                    </button>
+                                </div>
+
+                                {showPasskeySuccess && (
+                                    <div className="p-2 bg-emerald-50 text-emerald-700 text-xs font-bold border border-emerald-100 rounded-xl animate-pulse">
+                                        Passkey successfully registered and verified with Supabase key store!
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+
+                    </div>
+
+                    {/* Manage Account & Sign Out row */}
+                    <div className="flex flex-col sm:flex-row gap-2 justify-between items-center bg-slate-50/50 border border-slate-100 p-4 rounded-2xl">
+                        <span className="text-[11px] text-slate-500 font-medium">
+                            Logged in securely via Supabase Authentication. Last session synchronized.
+                        </span>
+                        <button 
+                            onClick={handleLogout}
+                            className="inline-flex items-center justify-center gap-1.5 bg-red-50 hover:bg-red-100 text-red-600 text-xs font-extrabold px-4.5 py-2 rounded-full border border-red-200/50 transition-all active:scale-95 cursor-pointer shadow-sm"
+                        >
+                            <LogOut size={13} />
+                            <span>Sign Out of Account</span>
+                        </button>
+                    </div>
+
+                </div>
+            )}
+        </div>
+
+        {/* --- STAFF LOCK SCREEN OVERLAY --- */}
+        {sessionLocked && user.role === 'staff' && (
+            <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-6">
+                <div className="bg-white rounded-3xl p-8 max-w-sm w-full text-center border border-slate-100 shadow-2xl animate-in zoom-in duration-200">
+                    <div className="w-16 h-16 bg-amber-50 text-amber-600 rounded-full flex items-center justify-center mx-auto mb-4">
+                        <Lock size={32} />
+                    </div>
+                    <h3 className="text-xl font-bold text-gray-900">Session Locked</h3>
+                    <p className="text-xs text-gray-400 mt-1 mb-6">Enter your Secure PIN to unlock the console</p>
+                    
+                    <input 
+                        type="password"
+                        placeholder="••••"
+                        maxLength={6}
+                        value={pinInput}
+                        onChange={e => setPinInput(e.target.value)}
+                        className="w-full text-center py-3.5 bg-gray-50 border-2 border-gray-100 focus:border-indigo-500 rounded-2xl font-black text-xl outline-none tracking-widest mb-5"
+                        onKeyDown={e => e.key === 'Enter' && handleVerifyStaffPin()}
+                    />
+                    
+                    <div className="flex gap-2">
+                        <button 
+                            onClick={handleLogout}
+                            className="flex-1 py-3 border border-gray-200 text-gray-600 font-bold rounded-full text-xs transition-colors hover:bg-gray-50 cursor-pointer bg-white"
+                        >
+                            Change Account
+                        </button>
+                        <button 
+                            onClick={handleVerifyStaffPin}
+                            className="flex-1 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-bold rounded-full text-xs transition-colors cursor-pointer shadow-lg shadow-indigo-150 border-0"
+                        >
+                            Unlock
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+        {/* ==========================================
+            GROUP 1: ACCOUNT & BUSINESS SETUP
+            ========================================== */}
+        <div className="space-y-2">
+            <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Store & Business Setup</div>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-50">
+                
+                {/* 1.1 Store Details */}
+                <SettingRow
+                    icon={Store}
+                    iconBg="bg-indigo-50"
+                    iconColor="text-indigo-600"
+                    title="Store Details & Profile"
+                    description="Edit store logo, name, address, phone, and upi details"
+                    isExpanded={expandedRow === 'store_details'}
+                    onClick={() => {
+                        toggleRow('store_details');
+                        if (!isEditingProfile) handleStartEdit();
+                    }}
+                    rightElement={
+                        <span className="text-xs font-bold text-indigo-600 bg-indigo-50/50 px-2.5 py-1 rounded-lg">
+                            {isEditingProfile ? 'Editing' : 'View'}
+                        </span>
+                    }
+                >
+                    {isEditingProfile ? (
+                        <div className="space-y-4 pt-3">
+                            <div className="flex items-center gap-4 p-4 bg-slate-50 rounded-2xl border border-slate-100">
+                                 <div className="w-16 h-16 rounded-xl bg-white border border-slate-200 flex items-center justify-center overflow-hidden shrink-0">
+                                     {tempProfile.logo ? <img src={tempProfile.logo} alt="Logo" className="w-full h-full object-contain" /> : <ImageIcon className="text-slate-300" size={24} />}
+                                 </div>
+                                 <div className="text-left">
+                                     <input type="file" ref={logoInputRef} onChange={handleLogoUpload} className="hidden" accept="image/*" />
+                                     <Button size="sm" variant="neutral" onClick={() => logoInputRef.current?.click()} className="flex items-center gap-2"><Upload size={13}/> Upload Logo</Button>
+                                     <p className="text-[9px] text-slate-400 mt-1.5 font-medium">Recommended: 200x200px</p>
+                                 </div>
+                            </div>
+                            <div className="space-y-3 text-left">
+                                <Input value={tempProfile.storeName || ''} onChange={e => setTempProfile({...tempProfile, storeName: e.target.value})} className="!py-2.5 !px-3.5" placeholder="Store Name"/>
+                                <Input value={tempProfile.storeAddress || ''} onChange={e => setTempProfile({...tempProfile, storeAddress: e.target.value})} className="!py-2.5 !px-3.5" placeholder="Address"/>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                    <Input value={tempProfile.storePhone || ''} onChange={e => setTempProfile({...tempProfile, storePhone: e.target.value})} className="!py-2.5 !px-3.5" placeholder="Phone"/>
+                                    <Input value={tempProfile.storeEmail || ''} onChange={e => setTempProfile({...tempProfile, storeEmail: e.target.value})} className="!py-2.5 !px-3.5" placeholder="Email"/>
+                                </div>
+                                <div className="space-y-1 bg-violet-50/40 p-3.5 rounded-2xl border border-violet-100 text-left">
+                                    <label className="text-[10px] font-extrabold text-violet-800 uppercase block mb-1">Merchant UPI ID</label>
+                                    <Input value={tempProfile.upiId || ''} onChange={e => setTempProfile({...tempProfile, upiId: e.target.value})} className="!py-2.5 !px-3.5 bg-white border-violet-200" placeholder="e.g. storename@upi"/>
+                                    <p className="text-[9px] text-violet-600 mt-1 font-medium leading-relaxed">UPI ID is used on the customer portal to generate QR code checkout options dynamically.</p>
+                                </div>
+                                <div className="space-y-1 text-left">
+                                    <label className="text-[10px] font-extrabold text-slate-400 uppercase tracking-wider block">Warehouse / Store Type</label>
+                                    <select
+                                        value={tempProfile.warehouseType || 'general'}
+                                        onChange={e => setTempProfile({...tempProfile, warehouseType: e.target.value})}
+                                        className="w-full py-2.5 px-3.5 bg-slate-50 border-2 border-slate-100 focus:border-indigo-500 rounded-xl font-semibold outline-none text-xs text-slate-800 transition-colors"
+                                    >
+                                        <option value="general">General / Hardware Warehouse</option>
+                                        <option value="pharma">Pharmaceuticals & Clinical Products</option>
+                                        <option value="grocery">Grocery & Fresh Foods</option>
+                                        <option value="electronics">Consumer Electronics & Tech</option>
+                                        <option value="clothing">Clothing, Fashion & Apparel</option>
+                                    </select>
+                                </div>
+                                
+                                <div className="pt-2.5 space-y-3 border-t border-slate-100 text-left">
+                                    <h5 className="text-[10px] font-black text-indigo-500 uppercase tracking-widest">Warehouse Custom Fields</h5>
+                                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                        <div className="space-y-0.5">
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase">Warehouse Code</label>
+                                            <Input value={tempProfile.warehouseCode || ''} onChange={e => setTempProfile({...tempProfile, warehouseCode: e.target.value})} className="!py-2 !px-3 !text-xs" placeholder="WH-MAIN-01"/>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase">Warehouse Manager</label>
+                                            <Input value={tempProfile.warehouseManager || ''} onChange={e => setTempProfile({...tempProfile, warehouseManager: e.target.value})} className="!py-2 !px-3 !text-xs" placeholder="John Doe"/>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase">Capacity (Units)</label>
+                                            <Input type="number" value={tempProfile.warehouseCapacity || 5000} onChange={e => setTempProfile({...tempProfile, warehouseCapacity: parseInt(e.target.value) || 0})} className="!py-2 !px-3 !text-xs" placeholder="Capacity Limit"/>
+                                        </div>
+                                        <div className="space-y-0.5">
+                                            <label className="text-[9px] font-bold text-slate-400 uppercase">Default Storage Zone</label>
+                                            <Input value={tempProfile.warehouseZone || ''} onChange={e => setTempProfile({...tempProfile, warehouseZone: e.target.value})} className="!py-2 !px-3 !text-xs" placeholder="Zone A"/>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            <div className="flex gap-2 pt-2 border-t border-slate-50">
+                                <button 
+                                    onClick={() => { setIsEditingProfile(false); toggleRow(null); }} 
+                                    className="flex-1 py-2.5 border border-slate-200 text-slate-500 font-bold rounded-xl text-xs bg-white hover:bg-slate-50 transition-colors cursor-pointer"
+                                >
+                                    Cancel
+                                </button>
+                                <button 
+                                    onClick={async () => {
+                                        await handleSaveProfile();
+                                        toggleRow(null);
+                                    }} 
+                                    className="flex-1 py-2.5 bg-emerald-600 text-white font-bold rounded-xl text-xs hover:bg-emerald-700 transition-colors flex items-center justify-center gap-1.5 border-0 cursor-pointer shadow-sm"
+                                >
+                                    <Save size={14} />
+                                    <span>Save Details</span>
+                                </button>
+                            </div>
+                        </div>
+                    ) : (
+                        <div className="space-y-4 pt-3">
+                            {storeSettings?.logo && (
+                                <div className="flex justify-center bg-slate-50 p-3 rounded-2xl border border-slate-100">
+                                    <img src={storeSettings.logo} alt="Store Logo" className="h-12 object-contain" />
+                                </div>
+                            )}
+                            <div className="bg-slate-50/50 p-4 rounded-2xl border border-slate-100/80 space-y-3 text-xs font-medium text-slate-700 text-left">
+                                <div className="flex justify-between border-b border-slate-100 pb-2">
+                                    <span className="text-slate-400 font-bold uppercase text-[9px]">Store Name:</span>
+                                    <span className="font-bold text-slate-900 text-right">{storeSettings?.storeName || 'Not Set'}</span>
+                                </div>
+                                <div className="flex justify-between border-b border-slate-100 pb-2">
+                                    <span className="text-slate-400 font-bold uppercase text-[9px]">Address:</span>
+                                    <span className="font-semibold text-slate-800 text-right max-w-[200px] truncate">{storeSettings?.storeAddress || 'Not Set'}</span>
+                                </div>
+                                <div className="flex justify-between border-b border-slate-100 pb-2">
+                                    <span className="text-slate-400 font-bold uppercase text-[9px]">Phone / Email:</span>
+                                    <span className="text-right">{storeSettings?.storePhone || 'Not Set'} | {storeSettings?.storeEmail || 'Not Set'}</span>
+                                </div>
+                                {storeSettings?.upiId && (
+                                    <div className="flex justify-between border-b border-slate-100 pb-2 text-violet-700">
+                                        <span className="text-violet-400 font-bold uppercase text-[9px]">UPI ID:</span>
+                                        <span className="font-bold select-all">{storeSettings.upiId}</span>
+                                    </div>
+                                )}
+                                <div className="grid grid-cols-2 gap-2 pt-1">
+                                    {storeSettings?.warehouseCode && (
+                                        <div className="bg-white p-2 rounded-xl border border-slate-100">
+                                            <div className="text-[8px] text-slate-400 font-bold uppercase">Code</div>
+                                            <div className="font-bold text-slate-900 text-xs">{storeSettings.warehouseCode}</div>
+                                        </div>
+                                    )}
+                                    {storeSettings?.warehouseManager && (
+                                        <div className="bg-white p-2 rounded-xl border border-slate-100">
+                                            <div className="text-[8px] text-slate-400 font-bold uppercase">Manager</div>
+                                            <div className="font-bold text-slate-900 text-xs">{storeSettings.warehouseManager}</div>
+                                        </div>
+                                    )}
+                                    {storeSettings?.warehouseCapacity && (
+                                        <div className="bg-white p-2 rounded-xl border border-slate-100">
+                                            <div className="text-[8px] text-slate-400 font-bold uppercase">Capacity</div>
+                                            <div className="font-bold text-slate-900 text-xs">{storeSettings.warehouseCapacity.toLocaleString()} Units</div>
+                                        </div>
+                                    )}
+                                    {storeSettings?.warehouseZone && (
+                                        <div className="bg-white p-2 rounded-xl border border-slate-100">
+                                            <div className="text-[8px] text-slate-400 font-bold uppercase">Zone</div>
+                                            <div className="font-bold text-slate-900 text-xs">{storeSettings.warehouseZone}</div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            <Button 
+                                size="sm" 
+                                variant="neutral" 
+                                className="w-full flex items-center justify-center gap-1 border-slate-200 text-slate-700 hover:bg-slate-50 py-2.5 font-bold cursor-pointer"
+                                onClick={() => setIsEditingProfile(true)}
+                            >
+                                <Edit3 size={14} />
+                                <span>Modify Details</span>
+                            </Button>
+                        </div>
+                    )}
+                </SettingRow>
+
+                {/* 1.2 KPI Revenue Target Planner */}
+                {user.role === 'admin' && storeSettings && (
+                    <SettingRow
+                        icon={Target}
+                        iconBg="bg-emerald-50"
+                        iconColor="text-emerald-600"
+                        title="Business KPI Target Planner"
+                        description="Track and scale store revenue goals"
+                        isExpanded={expandedRow === 'kpi_planner'}
+                        onClick={() => toggleRow('kpi_planner')}
+                        rightElement={
+                            <Badge variant={salesTargetPercent >= 100 ? 'success' : 'neutral'} className="font-extrabold uppercase shrink-0 text-[10px]">
+                                {salesTargetPercent}% MET
+                            </Badge>
+                        }
+                    >
+                        <div className="space-y-4 pt-3.5">
+                            <div className="space-y-2.5 text-left">
+                                <div className="flex justify-between text-[10px] font-black text-slate-400 uppercase tracking-wide">
+                                    <span>Current: ₹{totalRevenue.toLocaleString()}</span>
+                                    <span>Target: ₹{(storeSettings.salesTarget || 100000).toLocaleString()}</span>
+                                </div>
+                                <div className="w-full bg-slate-100 h-3 rounded-full overflow-hidden p-0.5 border border-slate-150/40">
+                                    <div 
+                                        className="h-full rounded-full bg-gradient-to-r from-emerald-500 to-teal-500 transition-all duration-500"
+                                        style={{ width: `${salesTargetPercent}%` }}
+                                    />
+                                </div>
+                                <p className="text-[11px] text-slate-500 leading-relaxed font-medium text-left">
+                                    {salesTargetPercent >= 100 
+                                        ? "🎉 Incredible achievement! Your store exceeded its monthly targets. Scale up for extra growth!" 
+                                        : `You are ₹${Math.max(0, (storeSettings.salesTarget || 100000) - totalRevenue).toLocaleString()} away from meeting the current target goals.`}
+                                </p>
+                            </div>
+
+                            <div className="pt-2.5 border-t border-slate-100 flex items-center gap-3">
+                                <div className="relative flex-1">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-xs font-bold text-slate-400">₹</span>
+                                    <input 
+                                        type="number"
+                                        placeholder="Set New Revenue Target"
+                                        defaultValue={storeSettings.salesTarget || ''}
+                                        onBlur={async (e) => {
+                                            const val = parseInt(e.target.value) || 0;
+                                            if (val > 0) {
+                                                await handleUpdateSettings({ salesTarget: val });
+                                            }
+                                        }}
+                                        className="w-full pl-7 pr-3 py-2 bg-white border border-slate-200 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 rounded-xl outline-none text-xs font-bold text-slate-900 text-left"
+                                    />
+                                </div>
+                                <span className="text-[8px] text-indigo-500 font-black uppercase tracking-wider shrink-0 bg-indigo-50 px-2 py-1.5 rounded-lg border border-indigo-100/40">
+                                    Auto-Saves
+                                </span>
+                            </div>
+                        </div>
+                    </SettingRow>
+                )}
+
+                {/* 1.3 Share Database ID */}
+                {user.role === 'admin' && (
+                    <SettingRow
+                        icon={Cloud}
+                        iconBg="bg-blue-50"
+                        iconColor="text-blue-600"
+                        title="Share Database with Staff"
+                        description="Allow staff members to connect with your warehouse database"
+                        isExpanded={expandedRow === 'share_database'}
+                        onClick={() => toggleRow('share_database')}
+                        rightElement={
+                            <span className="text-[10px] font-mono font-bold text-slate-400 bg-slate-50 px-2 py-0.5 rounded-lg border border-slate-100">
+                                {user.id.slice(0, 6).toUpperCase()}...
+                            </span>
+                        }
+                    >
+                        <div className="space-y-3 pt-3.5 text-left">
+                            <p className="text-xs text-slate-600 font-medium leading-relaxed text-left">
+                                Provide your staff with the following **Database ID**. They will input this ID on their login console to authenticate and fetch the corresponding store catalog safely.
+                            </p>
+                            
+                            <div className="flex items-center justify-between p-3 bg-white rounded-2xl border border-slate-100 gap-3">
+                                <div className="min-w-0 flex-1 pr-1 text-left">
+                                    <div className="text-[8px] text-slate-400 font-bold uppercase tracking-wider">Database ID</div>
+                                    <div className="text-xs font-black text-indigo-900 truncate select-all">{user.id}</div>
+                                </div>
+                                <button 
+                                    onClick={() => {
+                                        navigator.clipboard.writeText(user.id);
+                                        alert("Database ID copied to clipboard!");
+                                    }}
+                                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-full border-0 cursor-pointer shadow-sm active:scale-95 transition-all shrink-0"
+                                >
+                                    Copy ID
+                                </button>
+                            </div>
+                        </div>
+                    </SettingRow>
+                )}
+            </div>
+        </div>
+
+        {/* ==========================================
+            GROUP 2: TEAM & OPERATIONS AUDITING
+            ========================================== */}
+        <div className="space-y-2 text-left">
+            <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Team & Operations</div>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-50">
+                
+                {/* 2.2 Product Update History */}
+                {user.role === 'admin' && (
+                    <SettingRow
+                        icon={Clock}
+                        iconBg="bg-amber-50"
+                        iconColor="text-amber-600"
+                        title="Inventory Audit Logs"
+                        description="Review actions, stock updates, additions, and deletions"
+                        isExpanded={expandedRow === 'product_history'}
+                        onClick={() => toggleRow('product_history')}
+                        rightElement={
+                            <span className="text-[10px] font-bold text-amber-700 bg-amber-50 px-2 py-0.5 rounded-lg border border-amber-100/50">
+                                {productHistory.length} EVENTS
+                            </span>
+                        }
+                    >
+                        <div className="space-y-2.5 pt-3.5 text-left">
+                            {productHistory.length === 0 ? (
+                                <div className="text-center py-6 bg-slate-50/50 p-4 rounded-2xl border border-slate-100 text-slate-400">
+                                    <Clock size={24} className="mx-auto mb-1.5 opacity-30" />
+                                    <p className="text-[11px] font-semibold">No transactions or changes recorded yet.</p>
+                                </div>
+                            ) : (
+                                <div className="max-h-56 overflow-y-auto space-y-2 pr-1">
+                                    {productHistory.map(log => (
+                                        <div key={log.id} className="bg-slate-50/40 p-3 rounded-2xl border border-slate-100/60 shadow-none text-left">
+                                            <div className="flex items-start justify-between gap-3">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="font-bold text-slate-800 text-xs truncate">{log.productName}</div>
+                                                    <div className="text-[10px] text-slate-500 mt-1 leading-normal font-medium">{log.details}</div>
+                                                </div>
+                                                <span className={`px-2 py-0.5 rounded-full text-[8px] font-extrabold uppercase tracking-widest shrink-0 border ${
+                                                    log.action === 'create' 
+                                                    ? 'bg-green-50 text-green-700 border-green-100' 
+                                                    : log.action === 'delete'
+                                                    ? 'bg-red-50 text-red-700 border-red-100'
+                                                    : 'bg-blue-50 text-blue-700 border-blue-100'
+                                                }`}>
+                                                    {log.action}
+                                                </span>
+                                            </div>
+                                            <div className="border-t border-slate-100/50 pt-1.5 mt-2 flex justify-between items-center text-[9px] text-slate-400">
+                                                <span className="font-semibold text-slate-500">ByUser: {log.performedBy}</span>
+                                                <span>{new Date(log.timestamp).toLocaleString()}</span>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    </SettingRow>
+                )}
+
+                {/* 2.3 Shift Cash Reconciliation */}
+                <SettingRow
+                    icon={Scale}
+                    iconBg="bg-indigo-50"
+                    iconColor="text-indigo-600"
+                    title="Shift Cash Reconciliation"
+                    description="Audit registers and cash drawer balances between shifts"
+                    isExpanded={expandedRow === 'shift_recon'}
+                    onClick={() => toggleRow('shift_recon')}
+                    rightElement={
+                        <button 
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setShowShiftLogModal(true);
+                            }}
+                            className="px-3 py-1 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-[10px] rounded-full border-0 shadow-sm active:scale-95 transition-all cursor-pointer"
+                        >
+                            Log Cash
+                        </button>
+                    }
+                >
+                    <div className="space-y-3 pt-3.5 text-left">
+                        <div className="flex items-center justify-between pb-2 border-b border-slate-50 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                            <span>Recent Cash Reconciliation History</span>
+                            {shiftHistory.length > 0 && (
+                                <button onClick={handleClearShiftHistory} className="text-red-500 hover:underline border-0 bg-transparent cursor-pointer font-bold uppercase text-[9px]">
+                                    Clear Logs
+                                </button>
+                            )}
+                        </div>
+                        {shiftHistory.length === 0 ? (
+                            <div className="text-center py-6 bg-slate-50/50 p-4 rounded-2xl border border-slate-100 text-slate-400">
+                                <Scale size={24} className="mx-auto mb-1.5 opacity-30" />
+                                <p className="text-[11px] font-semibold">No shift audits logged yet. Keep audits to track cash variance.</p>
+                            </div>
+                        ) : (
+                            <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                                {shiftHistory.slice(0, 5).map(log => {
+                                    const isDiscrepancy = Math.abs(log.difference) > 0.1;
+                                    return (
+                                        <div key={log.id} className="bg-white p-3 rounded-2xl border border-slate-100 shadow-sm space-y-2 text-left">
+                                            <div className="flex justify-between items-start">
+                                                <div>
+                                                    <span className="text-[9px] font-bold text-slate-400 uppercase">{new Date(log.timestamp).toLocaleDateString()} {new Date(log.timestamp).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                                                    <span className="text-[11px] font-black text-slate-800 block">Audited by: {log.performedBy}</span>
+                                                </div>
+                                                <div className="text-right">
+                                                    <span className={`px-2 py-0.5 rounded-full text-[8px] font-extrabold tracking-wide uppercase border ${
+                                                        isDiscrepancy 
+                                                        ? log.difference > 0 
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-100' 
+                                                            : 'bg-rose-50 text-rose-700 border-rose-100'
+                                                        : 'bg-green-50 text-green-700 border-green-100'
+                                                    }`}>
+                                                        {isDiscrepancy 
+                                                            ? `DIFF: ₹${log.difference.toLocaleString()}` 
+                                                            : 'Balanced'}
+                                                    </span>
+                                                </div>
+                                            </div>
+                                            <div className="grid grid-cols-3 gap-1 pt-1.5 border-t border-slate-50 text-center text-[9px] font-bold text-slate-400 uppercase">
+                                                <div>
+                                                    <span className="block text-xs font-black text-slate-800">₹{log.openingCash}</span>
+                                                    Open
+                                                </div>
+                                                <div>
+                                                    <span className="block text-xs font-black text-slate-800">₹{log.expectedSales.toLocaleString()}</span>
+                                                    Sales
+                                                </div>
+                                                <div>
+                                                    <span className="block text-xs font-black text-slate-800">₹{log.closingCash}</span>
+                                                    Close
+                                                </div>
+                                            </div>
+                                            {log.notes && (
+                                                <p className="text-[10px] text-slate-500 font-semibold bg-slate-50 p-2 rounded-xl border border-slate-100/50">
+                                                    <strong>Note:</strong> {log.notes}
+                                                </p>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
+                </SettingRow>
+            </div>
+        </div>
+
+        {/* ==========================================
+            GROUP 3: SYSTEM PREFERENCES & CONFIGURATIONS
+            ========================================== */}
+        <div className="space-y-2 text-left">
+            <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5 px-1">System Preferences & Settings</div>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-50">
+                
+                {/* 3.3 Hardware Configurations */}
+                <SettingRow
+                    icon={Printer}
+                    iconBg="bg-slate-100"
+                    iconColor="text-slate-600"
+                    title="Hardware & Printing Accessories"
+                    description="Setup barcode scanners and thermal receipt print actions"
+                    isExpanded={expandedRow === 'hardware_printer'}
+                    onClick={() => toggleRow('hardware_printer')}
+                >
+                    <div className="space-y-4 pt-3.5 text-left">
+                        <div className="flex items-center justify-between pb-3 border-b border-slate-50">
+                            <div>
+                                <label className="font-bold text-slate-800 text-xs block">Direct thermal printing</label>
+                                <p className="text-[10px] text-slate-400 font-medium">Skip browser popup dialogues and prints instantly.</p>
+                            </div>
+                            <button 
+                                onClick={handleToggleDirectPrint} 
+                                className={`w-10 h-5 rounded-full transition-all duration-300 relative shrink-0 border-0 cursor-pointer ${storeSettings?.directPrintEnabled ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                            >
+                                <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow ${storeSettings?.directPrintEnabled ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                            </button>
+                        </div>
+
+                        <div className="space-y-2.5">
+                            <div>
+                                <label className="font-bold text-slate-800 text-xs block">Barcode Scanner Preferences</label>
+                                <p className="text-[10px] text-slate-400 font-medium">Prioritize specific hardware methods during invoice scanning.</p>
+                            </div>
+                            <div className="grid grid-cols-3 gap-2">
+                                {([
+                                    { value: 'phone', label: 'Cam Scan', icon: Smartphone },
+                                    { value: 'machine', label: 'Laser Gun', icon: Scan },
+                                    { value: 'both', label: 'Hybrid/All', icon: RefreshCw }
+                                ] as const).map(pref => (
+                                    <button
+                                        key={pref.value}
+                                        onClick={() => handleScannerPreferenceChange(pref.value)}
+                                        className={`flex flex-col items-center justify-center p-2 rounded-xl border text-[10px] font-bold gap-1 transition-all border-0 cursor-pointer ${storeSettings?.scannerPreference === pref.value ? 'bg-indigo-50 text-indigo-700 border border-indigo-200/50' : 'bg-slate-50 text-slate-600 hover:bg-slate-100'}`}
+                                    >
+                                        <pref.icon size={14} />
+                                        <span>{pref.label}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+                </SettingRow>
+
+                {/* 3.4 Custom Receipt Builder */}
+                <SettingRow
+                    icon={FileText}
+                    iconBg="bg-purple-50"
+                    iconColor="text-purple-600"
+                    title="Invoice & Receipt Customizer"
+                    description="Configure tagline slogans, footer guidelines, and tax rate presets"
+                    isExpanded={expandedRow === 'receipt_builder'}
+                    onClick={() => toggleRow('receipt_builder')}
+                >
+                    <div className="space-y-3.5 pt-3.5 text-left">
+                        <div>
+                            <label className="font-bold text-slate-800 text-xs block mb-1">Receipt Header (Tagline Slogan)</label>
+                            <input 
+                                type="text"
+                                placeholder="e.g. Thanks for shopping with us!"
+                                defaultValue={storeSettings?.receiptHeader || ''}
+                                onBlur={(e) => handleUpdateSettings({ receiptHeader: e.target.value })}
+                                className="w-full font-semibold text-xs bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 outline-none transition-all text-left" 
+                            />
+                        </div>
+                        
+                        <div>
+                            <label className="font-bold text-slate-800 text-xs block mb-1">Receipt Footer (Terms & Policies)</label>
+                            <input 
+                                type="text"
+                                placeholder="e.g. Items returnable within 7 days with original cash memo"
+                                defaultValue={storeSettings?.receiptFooter || ''}
+                                onBlur={(e) => handleUpdateSettings({ receiptFooter: e.target.value })}
+                                className="w-full font-semibold text-xs bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl p-2.5 outline-none transition-all text-left" 
+                            />
+                        </div>
+
+                        <div className="flex items-center justify-between py-1 border-t border-slate-50 pt-2.5">
+                            <div>
+                                <label className="font-bold text-slate-800 text-xs block">Invoice Default Tax Rate</label>
+                                <p className="text-[10px] text-slate-400 font-medium">GST percentage applied automatically on billing checkouts.</p>
+                            </div>
+                            <select 
+                                value={storeSettings?.taxRateDefault ?? 0}
+                                onChange={(e) => handleUpdateSettings({ taxRateDefault: parseFloat(e.target.value) || 0 })}
+                                className="font-extrabold text-xs bg-slate-50 border border-slate-200 focus:border-indigo-500 rounded-xl p-2 outline-none cursor-pointer text-slate-700"
+                            >
+                                <option value={0}>0% GST Tax Free</option>
+                                <option value={5}>5% Standard GST</option>
+                                <option value={12}>12% Apparel & Goods</option>
+                                <option value={18}>18% Luxury & Services</option>
+                            </select>
+                        </div>
+
+                        <div className="flex items-center justify-between py-1 border-t border-slate-50 pt-2.5">
+                            <div>
+                                <label className="font-bold text-slate-800 text-xs block">Embed Store Logo on Receipts</label>
+                                <p className="text-[10px] text-slate-400 font-medium">Add store logo header to exported PDF files.</p>
+                            </div>
+                            <button 
+                                onClick={() => handleUpdateSettings({ showLogoOnReceipt: !storeSettings?.showLogoOnReceipt })} 
+                                className={`w-10 h-5 rounded-full transition-all duration-300 relative shrink-0 border-0 cursor-pointer ${storeSettings?.showLogoOnReceipt ? 'bg-indigo-600' : 'bg-slate-200'}`}
+                            >
+                                <div className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full transition-transform duration-300 shadow ${storeSettings?.showLogoOnReceipt ? 'translate-x-5' : 'translate-x-0'}`}></div>
+                            </button>
+                        </div>
+                    </div>
+                </SettingRow>
+
+
+
+            </div>
+        </div>
+
+        {/* ==========================================
+            GROUP 4: CLOUD STATUS & UTILITIES (DANGER ZONE)
+            ========================================== */}
+        <div className="space-y-2 text-left">
+            <div className="text-[10px] font-extrabold text-slate-400 uppercase tracking-widest mb-1.5 px-1">Utilities & Maintenance</div>
+            <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden divide-y divide-slate-50">
+                
+                {/* 4.1 Database backup and recovery */}
+                <SettingRow
+                    icon={HardDrive}
+                    iconBg="bg-blue-50"
+                    iconColor="text-blue-600"
+                    title="Database Backup & Sync"
+                    description="Export backup files, upload states, and synchronize local cache with cloud"
+                    isExpanded={expandedRow === 'backup_recovery'}
+                    onClick={() => toggleRow('backup_recovery')}
+                    rightElement={
+                        <span className="text-[10px] font-bold text-blue-700 bg-blue-50 px-2 py-0.5 rounded-lg border border-blue-100/50">
+                            ONLINE
+                        </span>
+                    }
+                >
+                    <div className="space-y-3 pt-3.5 text-left">
+                        <p className="text-xs text-slate-600 font-medium leading-relaxed">
+                            Backup files represent your complete offline database snapshot. You can safely export them to save your current inventory, customer balances, and shift records.
+                        </p>
+                        {lastBackup && (
+                            <p className="text-[10px] text-slate-400 font-bold uppercase">
+                                Last Sync: {lastBackup}
+                            </p>
+                        )}
+                        <div className="grid grid-cols-2 gap-3 pt-1">
+                            <button 
+                                onClick={handleExport} 
+                                className="flex items-center justify-center gap-2 py-3 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold hover:bg-slate-50 transition-colors cursor-pointer text-xs"
+                            >
+                                <Download size={14} className="text-blue-500"/>
+                                <span>Export Backup</span>
+                            </button>
+                            <button 
+                                onClick={handleImportClick} 
+                                className="flex items-center justify-center gap-2 py-3 bg-white border border-slate-200 rounded-xl text-slate-700 font-bold hover:bg-slate-50 transition-colors cursor-pointer text-xs"
+                            >
+                                <Upload size={14} className="text-purple-500"/>
+                                <span>Import Backup</span>
+                            </button>
+                        </div>
+                        <input type="file" ref={fileInputRef} onChange={handleFileChange} className="hidden" accept=".json" />
+                    </div>
+                </SettingRow>
+
+
+
+            </div>
+        </div>
+
+        {/* --- MODAL PLUGINS --- */}
+        <ProfileModals
+            showRecycleBin={showRecycleBin}
+            setShowRecycleBin={setShowRecycleBin}
+            recycleRetention={recycleRetention}
+            deletedItems={deletedItems}
+            groupedDeletedItems={groupedDeletedItems}
+            handleEmptyBin={handleEmptyBin}
+            handleRestoreItem={handleRestoreItem}
+            handlePermanentDelete={handlePermanentDelete}
+            onTouchStart={onTouchStart}
+            onTouchMove={onTouchMove}
+            onTouchEnd={onTouchEnd}
+
+            showResetConfirm={showResetConfirm}
+            setShowResetConfirm={setShowResetConfirm}
+            handleReset={handleReset}
+
+            showShiftLogModal={showShiftLogModal}
+            setShowShiftLogModal={setShowShiftLogModal}
+            openingCash={openingCash}
+            setOpeningCash={setOpeningCash}
+            closingCash={closingCash}
+            setClosingCash={setClosingCash}
+            shiftNotes={shiftNotes}
+            setShiftNotes={setShiftNotes}
+            totalRevenue={totalRevenue}
+            handleSaveShiftLog={handleSaveShiftLog}
+
+            showStaffModal={showStaffModal}
+            setShowStaffModal={setShowStaffModal}
+            editingStaffId={editingStaffId}
+            staffForm={staffForm}
+            setStaffForm={setStaffForm}
+            handleSaveStaff={handleSaveStaff}
+
+            confirmDialog={confirmDialog}
+            setConfirmDialog={setConfirmDialog}
+        />
+
+        <div className="text-center text-[10px] text-slate-400 font-extrabold uppercase tracking-widest pt-8 pb-4">Noor POS v1.6.3</div>
+    </div>
+  );
+};

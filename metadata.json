@@ -1,0 +1,10 @@
+{
+  "name": "Billing App",
+  "description": "Companion app for warehouse POS billing, CRM contact tracking, and profile settings using Supabase backend.",
+  "requestFramePermissions": [
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
