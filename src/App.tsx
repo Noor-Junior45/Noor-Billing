@@ -118,59 +118,7 @@ export default function App() {
   const [isInstallable, setIsInstallable] = useState(true); // Default true so they can always trigger the guide/download instructions
   const [showInstallGuide, setShowInstallGuide] = useState(false);
 
-  // First-time launch device permissions state
-  const [showPermissionPrompt, setShowPermissionPrompt] = useState(false);
 
-  useEffect(() => {
-    if (!loading && user) {
-      const hasPrompted = localStorage.getItem('noor_permissions_requested_v1');
-      if (!hasPrompted) {
-        setShowPermissionPrompt(true);
-      }
-    }
-  }, [loading, user]);
-
-  const handleGrantPermissions = async () => {
-    // 1. Request Camera Permission
-    try {
-      if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
-        stream.getTracks().forEach(track => track.stop());
-      }
-    } catch (err) {
-      console.warn('Camera permission request skipped or denied:', err);
-    }
-
-    // 2. Request Notification Permission
-    try {
-      if ('Notification' in window) {
-        const perm = await Notification.requestPermission();
-        if (perm === 'granted' && settings) {
-          await handleUpdateSettings({ notificationsEnabled: true });
-        }
-      }
-    } catch (err) {
-      console.warn('Notification permission request skipped or denied:', err);
-    }
-
-    // 3. Enable Direct Thermal Printing
-    try {
-      if (settings) {
-        await handleUpdateSettings({ directPrintEnabled: true });
-      }
-    } catch (err) {
-      console.warn('Printer configuration failed:', err);
-    }
-
-    // Mark as requested so it won't pop up again
-    localStorage.setItem('noor_permissions_requested_v1', 'true');
-    setShowPermissionPrompt(false);
-  };
-
-  const handleSkipPermissions = () => {
-    localStorage.setItem('noor_permissions_requested_v1', 'true');
-    setShowPermissionPrompt(false);
-  };
 
   useEffect(() => {
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -1048,78 +996,7 @@ export default function App() {
         </div>
       </Modal>
 
-      {/* First-Time App Permission & Device Setup Modal */}
-      <Modal
-        isOpen={showPermissionPrompt}
-        onClose={handleSkipPermissions}
-        title="App Device Configuration"
-        className="!max-w-md bg-[#FAF7F2]"
-      >
-        <div className="space-y-4 text-slate-700 text-xs">
-          <div className="flex justify-center pb-1">
-            <div className="w-12 h-12 bg-emerald-50 rounded-full flex items-center justify-center border border-emerald-100 shadow-sm animate-pulse">
-              <Shield size={24} className="text-emerald-600" />
-            </div>
-          </div>
-          <p className="text-center font-bold text-slate-950 text-sm">Welcome to Noor Billing!</p>
-          <p className="leading-relaxed text-center text-slate-600">
-            To provide you with a high-performance, seamless offline point of sale and billing experience, we request permission to access the following standard device capabilities:
-          </p>
-          
-          <div className="space-y-3 pt-2">
-            <div className="flex gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="w-8 h-8 bg-indigo-50 rounded-lg flex items-center justify-center border border-indigo-100 shrink-0">
-                <Camera size={16} className="text-indigo-600" />
-              </div>
-              <div className="space-y-0.5">
-                <h4 className="font-bold text-slate-900 text-xs">Camera Scanning</h4>
-                <p className="text-[11px] text-slate-500 leading-normal">
-                  Power our high-speed point-of-sale barcode scanner to instantly scan and match product labels.
-                </p>
-              </div>
-            </div>
 
-            <div className="flex gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center border border-amber-100 shrink-0">
-                <Bell size={16} className="text-amber-600" />
-              </div>
-              <div className="space-y-0.5">
-                <h4 className="font-bold text-slate-900 text-xs">Instant Alerts & Notifications</h4>
-                <p className="text-[11px] text-slate-500 leading-normal">
-                  Receive warnings for low inventory counts, offline checkout sync statuses, and credit dues.
-                </p>
-              </div>
-            </div>
-
-            <div className="flex gap-3 p-3 bg-white rounded-xl border border-slate-200 shadow-sm">
-              <div className="w-8 h-8 bg-emerald-50 rounded-lg flex items-center justify-center border border-emerald-100 shrink-0">
-                <Printer size={16} className="text-emerald-600" />
-              </div>
-              <div className="space-y-0.5">
-                <h4 className="font-bold text-slate-900 text-xs">Direct Thermal Printing</h4>
-                <p className="text-[11px] text-slate-500 leading-normal">
-                  Enable high-speed direct thermal receipt and invoice printing with zero browser print dialog delays.
-                </p>
-              </div>
-            </div>
-          </div>
-
-          <div className="flex gap-2 pt-4 border-t border-slate-200">
-            <button 
-              onClick={handleSkipPermissions}
-              className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-bold uppercase tracking-wider rounded-xl transition-all border-0 cursor-pointer"
-            >
-              Configure Later
-            </button>
-            <Button 
-              onClick={handleGrantPermissions} 
-              className="flex-1 py-2.5 bg-black text-white hover:bg-black/90 text-xs font-bold uppercase tracking-wider rounded-xl transition-all shadow-md"
-            >
-              Grant Permissions
-            </Button>
-          </div>
-        </div>
-      </Modal>
     </div>
   );
 }
