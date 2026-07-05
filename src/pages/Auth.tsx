@@ -143,97 +143,58 @@ export const Auth: React.FC<AuthProps> = ({ onLogin, onOpenPrivacy, onOpenTerms 
 
     try {
       if (isSignUp) {
-        try {
-          const { data, error } = await supabase.auth.signUp({
-            email: email.trim(),
-            password,
-            options: {
-              data: {
-                name: name.trim()
-              }
+        const { data, error } = await supabase.auth.signUp({
+          email: email.trim(),
+          password,
+          options: {
+            data: {
+              name: name.trim()
             }
-          });
-          if (error) throw error;
-          
-          const supabaseUser = data.user;
-          if (!supabaseUser) throw new Error('Failed to retrieve user after sign up.');
-          
-          const user: User = {
-            id: supabaseUser.id,
-            username: (supabaseUser.email || '').split('@')[0],
-            name: name.trim(),
-            email: supabaseUser.email || undefined,
-            role: 'admin',
-            pin: ''
-          };
-          // Prefill onboarding fields
-          setShopName(`${name.trim()}'s Warehouse`);
-          setShopEmail(email.trim());
-          setOnboardingUser(user);
-        } catch (supabaseErr: any) {
-          console.warn("Supabase signUp failed, falling back to local onboarding:", supabaseErr);
-          const localUid = 'local_' + btoa(email.trim()).replace(/=/g, '');
-          const user: User = {
-            id: localUid,
-            username: email.trim().split('@')[0],
-            name: name.trim(),
-            email: email.trim(),
-            role: 'admin',
-            pin: ''
-          };
-          setShopName(`${name.trim()}'s Warehouse`);
-          setShopEmail(email.trim());
-          setOnboardingUser(user);
-        }
+          }
+        });
+        if (error) throw error;
+        
+        const supabaseUser = data.user;
+        if (!supabaseUser) throw new Error('Failed to retrieve user after sign up.');
+        
+        const user: User = {
+          id: supabaseUser.id,
+          username: (supabaseUser.email || '').split('@')[0],
+          name: name.trim(),
+          email: supabaseUser.email || undefined,
+          role: 'admin',
+          pin: ''
+        };
+        // Prefill onboarding fields
+        setShopName(`${name.trim()}'s Warehouse`);
+        setShopEmail(email.trim());
+        setOnboardingUser(user);
       } else {
-        try {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: email.trim(),
-            password
-          });
-          if (error) throw error;
+        const { data, error } = await supabase.auth.signInWithPassword({
+          email: email.trim(),
+          password
+        });
+        if (error) throw error;
 
-          const supabaseUser = data?.user;
-          if (!supabaseUser) throw new Error('No user returned from login.');
+        const supabaseUser = data?.user;
+        if (!supabaseUser) throw new Error('No user returned from login.');
 
-          const user: User = {
-            id: supabaseUser.id,
-            username: (supabaseUser.email || '').split('@')[0],
-            name: supabaseUser.user_metadata?.name || (supabaseUser.email || '').split('@')[0],
-            email: supabaseUser.email || undefined,
-            role: 'admin',
-            pin: '',
-            photoURL: supabaseUser.user_metadata?.avatar_url || undefined
-          };
-          const isNew = await checkIfNewUser(supabaseUser.id);
-          if (isNew) {
-            setShopName(user.name ? `${user.name}'s Warehouse` : 'My Warehouse');
-            setShopEmail(email.trim());
-            setOnboardingUser(user);
-          } else {
-            onLogin(user);
-          }
-        } catch (supabaseErr: any) {
-          console.warn("Supabase auth failed, falling back to local sandbox mode:", supabaseErr);
-          
-          // Generate a local deterministic user ID based on the email
-          const localUid = 'local_' + btoa(email.trim()).replace(/=/g, '');
-          const localUser: User = {
-            id: localUid,
-            username: email.trim().split('@')[0],
-            name: email.trim().split('@')[0].replace(/^\w/, (c) => c.toUpperCase()) + ' (Local)',
-            email: email.trim(),
-            role: 'admin',
-            pin: ''
-          };
-          
-          localStorage.setItem('noor_user_uid', localUid);
-          localStorage.setItem('noor_user_name', localUser.name);
-          if (localUser.email) {
-            localStorage.setItem('noor_user_email', localUser.email);
-          }
-          
-          onLogin(localUser);
+        const user: User = {
+          id: supabaseUser.id,
+          username: (supabaseUser.email || '').split('@')[0],
+          name: supabaseUser.user_metadata?.name || (supabaseUser.email || '').split('@')[0],
+          email: supabaseUser.email || undefined,
+          role: 'admin',
+          pin: '',
+          photoURL: supabaseUser.user_metadata?.avatar_url || undefined
+        };
+        const isNew = await checkIfNewUser(supabaseUser.id);
+        if (isNew) {
+          setShopName(user.name ? `${user.name}'s Warehouse` : 'My Warehouse');
+          setShopEmail(email.trim());
+          setOnboardingUser(user);
+        } else {
+          onLogin(user);
         }
       }
     } catch (err: any) {
