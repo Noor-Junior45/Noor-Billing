@@ -1149,17 +1149,28 @@ function CustomerPortalView({ customerId }: PortalProps) {
     e.preventDefault();
     if (!customer || !proofAmount) return;
     const amount = parseFloat(proofAmount);
-    if (isNaN(amount) || amount <= 0) return;
+    if (isNaN(amount) || amount <= 0) {
+      alert("Please enter a valid positive settlement amount.");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      await StoreService.addCustomerPayment(
-        customer.id,
-        amount,
-        'UPI Online',
-        proofNote || 'UPI proof of settlement submitted by customer',
-        new Date().toISOString().split('T')[0],
-        proofFile || undefined
-      );
+      const payload: Partial<Customer> = {
+        ...customer,
+        pendingUpdates: {
+          ...customer.pendingUpdates,
+          timestamp: new Date().toISOString(),
+          pendingPayment: {
+            amount,
+            method: 'UPI Online',
+            note: proofNote || 'UPI proof of settlement submitted by customer',
+            date: new Date().toISOString().split('T')[0],
+            receiptImage: proofFile || undefined,
+            timestamp: new Date().toISOString()
+          }
+        }
+      };
+      await StoreService.upsertCustomer(payload);
       setPaymentSubmitted(true);
       
       // Refresh local customer state
@@ -1356,9 +1367,15 @@ function CustomerPortalView({ customerId }: PortalProps) {
                       <label className="text-[9px] uppercase font-mono tracking-wider text-[#1A1A18]/50 block mb-1">Settlement Amount (₹)</label>
                       <input 
                         type="number"
+                        min="0.01"
+                        step="any"
                         placeholder="0.00"
                         value={proofAmount}
-                        onChange={e => setProofAmount(e.target.value)}
+                        onChange={e => {
+                          const val = e.target.value;
+                          if (val.includes('-')) return;
+                          setProofAmount(val);
+                        }}
                         className="w-full px-3 py-2 bg-transparent border border-[#1A1A18]/10 focus:border-[#1A1A18] rounded-none outline-none text-xs text-[#1A1A18]"
                         required
                       />

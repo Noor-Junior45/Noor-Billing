@@ -95,6 +95,14 @@ export interface Customer {
     email?: string;
     location?: string;
     timestamp: string;
+    pendingPayment?: {
+      amount: number;
+      method: string;
+      note?: string;
+      date: string;
+      receiptImage?: string;
+      timestamp: string;
+    };
   };
 }
 

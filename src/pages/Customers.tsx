@@ -32,9 +32,21 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
   const [viewingSale, setViewingSale] = useState<Sale | null>(null);
   const [copiedPortal, setCopiedPortal] = useState(false);
 
+  const [zoomedReceipt, setZoomedReceipt] = useState<string | null>(null);
+  const [verifyingCustomer, setVerifyingCustomer] = useState<Customer | null>(null);
+  const [hasShownAutoPopup, setHasShownAutoPopup] = useState(false);
+
   // --- Navigation Gesture Hook ---
   useEffect(() => {
       const handleNavigationPop = (e: any) => {
+          if (zoomedReceipt) {
+              setZoomedReceipt(null);
+              return;
+          }
+          if (verifyingCustomer) {
+              setVerifyingCustomer(null);
+              return;
+          }
           if (showPaymentModal) {
               setShowPaymentModal(false);
               return;
@@ -54,7 +66,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       };
       window.addEventListener('app-navigation-pop' as any, handleNavigationPop);
       return () => window.removeEventListener('app-navigation-pop' as any, handleNavigationPop);
-  }, [selectedCustomer, showEditModal, showPaymentModal, viewingSale]);
+  }, [selectedCustomer, showEditModal, showPaymentModal, viewingSale, zoomedReceipt, verifyingCustomer]);
 
   const handleSelectCustomer = (c: Customer) => {
       window.history.pushState({ tab: Tab.CUSTOMERS, depth: 1 }, '');
@@ -95,6 +107,16 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
   useEffect(() => { loadData(); }, []);
 
   useEffect(() => {
+    if (customers.length > 0 && !hasShownAutoPopup) {
+      const pending = customers.find(c => c.pendingUpdates?.pendingPayment);
+      if (pending) {
+        setVerifyingCustomer(pending);
+        setHasShownAutoPopup(true);
+      }
+    }
+  }, [customers, hasShownAutoPopup]);
+
+  useEffect(() => {
     if (initialAction === 'add') {
         handleOpenAddModal();
         if (onClearAction) onClearAction();
@@ -114,6 +136,12 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
         if (updatedSelected) {
             setSelectedCustomer(updatedSelected);
         }
+    }
+
+    // Keep verifying customer up-to-date
+    if (verifyingCustomer) {
+        const updatedVerifying = cData.find(c => c.id === verifyingCustomer.id);
+        setVerifyingCustomer(updatedVerifying || null);
     }
   };
 
@@ -141,6 +169,66 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       
       await StoreService.upsertCustomer(updated);
       await loadData();
+  };
+
+  const handleApprovePayment = async (customer: Customer) => {
+      const pendingPayment = customer.pendingUpdates?.pendingPayment;
+      if (!pendingPayment) return;
+
+      try {
+          // Register the payment officially in the customer's payment list, which automatically reduces dues
+          await StoreService.addCustomerPayment(
+              customer.id,
+              pendingPayment.amount,
+              pendingPayment.method,
+              pendingPayment.note || 'Approved verification',
+              pendingPayment.date,
+              pendingPayment.receiptImage || undefined
+          );
+
+          // Get the updated customer structure from local cache to keep other pending updates intact
+          const updatedCustomers = await StoreService.getCustomers();
+          const found = updatedCustomers.find(c => c.id === customer.id);
+          if (found && found.pendingUpdates) {
+              const cleanedUpdates = { ...found.pendingUpdates };
+              delete cleanedUpdates.pendingPayment;
+              
+              // If there are no other pending fields, clear pendingUpdates entirely
+              const hasRemainingFields = !!(cleanedUpdates.name || cleanedUpdates.email || cleanedUpdates.location);
+              
+              const finalCustomer = {
+                  ...found,
+                  pendingUpdates: hasRemainingFields ? cleanedUpdates : undefined
+              };
+              await StoreService.upsertCustomer(finalCustomer);
+          }
+          
+          await loadData();
+          setVerifyingCustomer(null); // Close the auto-popup if it was open
+      } catch (err) {
+          alert('Failed to approve payment.');
+      }
+  };
+
+  const handleRejectPayment = async (customer: Customer) => {
+      if (!customer.pendingUpdates) return;
+      
+      try {
+          const cleanedUpdates = { ...customer.pendingUpdates };
+          delete cleanedUpdates.pendingPayment;
+          
+          const hasRemainingFields = !!(cleanedUpdates.name || cleanedUpdates.email || cleanedUpdates.location);
+          
+          const finalCustomer = {
+              ...customer,
+              pendingUpdates: hasRemainingFields ? cleanedUpdates : undefined
+          };
+          await StoreService.upsertCustomer(finalCustomer);
+          await loadData();
+          setVerifyingCustomer(null); // Close the auto-popup if it was open
+      } catch (err) {
+          alert('Failed to reject payment.');
+      }
   };
 
   const onTouchStart = (e: React.TouchEvent) => {
@@ -328,6 +416,23 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
                   </div>
               </div>
 
+              {/* Notification Button for Pending Payments */}
+              {customers.some(c => c.pendingUpdates?.pendingPayment) && (
+                  <button 
+                      onClick={() => {
+                          const first = customers.find(c => c.pendingUpdates?.pendingPayment);
+                          if (first) setVerifyingCustomer(first);
+                      }}
+                      className="px-3 py-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 rounded-full text-[10px] font-black uppercase tracking-wider flex items-center gap-1.5 shadow-sm animate-pulse shrink-0 cursor-pointer"
+                  >
+                      <span className="relative flex h-2 w-2">
+                        <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75"></span>
+                        <span className="relative inline-flex rounded-full h-2 w-2 bg-amber-500"></span>
+                      </span>
+                      Pending Payment
+                  </button>
+              )}
+
               {/* Right Side: Search Bar */}
               <div id="crm-search-container" className="flex-1 max-w-sm relative">
                   <div className="relative flex items-center bg-white hover:bg-slate-50 focus-within:bg-white rounded-full transition-all duration-300 border border-slate-200 focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100 focus-within:shadow-sm h-10 px-3.5">
@@ -356,12 +461,19 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
                                         {c.name.charAt(0).toUpperCase()}
                                         {c.isWholesaler && <div className="absolute -top-1 -right-1 bg-white rounded-full p-0.5 shadow-sm border border-gray-100"><Star size={10} className="text-amber-500 fill-amber-500"/></div>}
                                     </div>
-                                    <div className="min-w-0 flex-1">
+                                    <div className="min-w-0 flex-1 text-left">
                                         <div className="flex justify-between items-center pr-2">
                                             <span className="font-bold text-gray-900 truncate flex items-center gap-1">{c.name} {c.isWholesaler && <Star size={12} className="text-amber-500 fill-amber-500"/>}</span>
                                             {(c.totalDues || 0) > 0 && <span className="text-[10px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-full border border-red-100 shrink-0 ml-2 whitespace-nowrap uppercase">Due: ₹{c.totalDues}</span>}
                                         </div>
-                                        <div className="text-xs text-gray-500 truncate font-medium">{c.phone}</div>
+                                        <div className="flex justify-between items-center text-xs text-gray-500 font-medium">
+                                            <span className="truncate">{c.phone}</span>
+                                            {c.pendingUpdates?.pendingPayment && (
+                                                <span className="text-[9px] font-extrabold text-amber-600 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded-full animate-pulse ml-2 flex items-center gap-1 shrink-0 whitespace-nowrap uppercase">
+                                                    <Wallet size={10} /> Settle: ₹{c.pendingUpdates.pendingPayment.amount}
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                     <div className="hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity gap-2">
                                          <button onClick={(e) => {e.stopPropagation(); handleEditClick(c)}} className="p-2 hover:bg-white rounded-full text-gray-500 shadow-sm border border-gray-100"><Pencil size={16}/></button>
@@ -393,7 +505,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       return (
       <div className={`h-full bg-white overflow-y-auto ${isMobile ? 'animate-in slide-in-from-bottom-full duration-300' : 'rounded-2xl border border-gray-100 shadow-sm'}`}>
           <div className="p-4">
-              {customer.pendingUpdates && (
+              {customer.pendingUpdates && (customer.pendingUpdates.name || customer.pendingUpdates.email || customer.pendingUpdates.location) && (
                   <div className="mb-4 p-4 bg-amber-50 rounded-2xl border border-amber-200 shadow-sm text-left animate-in slide-in-from-top-2">
                       <div className="flex items-center gap-2 text-amber-800 font-extrabold text-xs uppercase tracking-wider mb-2">
                           <AlertTriangle size={16} className="text-amber-600 animate-pulse" />
@@ -437,6 +549,63 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
                               className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
                           >
                               Ignore
+                          </button>
+                      </div>
+                  </div>
+              )}
+
+              {customer.pendingUpdates?.pendingPayment && (
+                  <div className="mb-4 p-4 bg-emerald-50 rounded-2xl border border-emerald-200 shadow-sm text-left animate-in slide-in-from-top-2">
+                      <div className="flex items-center gap-2 text-emerald-800 font-extrabold text-xs uppercase tracking-wider mb-2">
+                          <Banknote size={16} className="text-emerald-600 animate-bounce" />
+                          <span>Pending Payment Verification</span>
+                      </div>
+                      <p className="text-xs text-emerald-700/85 mb-3 font-medium">
+                          The customer submitted a payment proof of <strong>₹{customer.pendingUpdates.pendingPayment.amount}</strong> via their online UPI payment link. Please verify the payment on your UPI app and approve below:
+                      </p>
+                      
+                      <div className="space-y-1.5 bg-white p-3 rounded-xl border border-emerald-100/70 mb-3 text-xs text-gray-700 font-medium font-sans">
+                          <div className="flex justify-between items-center pb-1.5 border-b border-emerald-50/50 mb-1.5">
+                              <span className="text-[10px] uppercase font-black text-gray-400">Settled Amount:</span>
+                              <span className="text-emerald-700 font-black text-sm">₹{customer.pendingUpdates.pendingPayment.amount}</span>
+                          </div>
+                          {customer.pendingUpdates.pendingPayment.note && (
+                              <div className="flex items-start gap-2">
+                                  <span className="text-[10px] uppercase font-black text-gray-400 w-16 shrink-0">UTR / Note:</span>
+                                  <span className="text-slate-800 font-bold bg-emerald-50/20 px-2 py-0.5 rounded-md border border-emerald-100/30 break-all">{customer.pendingUpdates.pendingPayment.note}</span>
+                              </div>
+                          )}
+                          <div className="flex items-center gap-2">
+                              <span className="text-[10px] uppercase font-black text-gray-400 w-16">Date:</span>
+                              <span className="text-slate-800 font-bold">{customer.pendingUpdates.pendingPayment.date}</span>
+                          </div>
+                          {customer.pendingUpdates.pendingPayment.receiptImage && (
+                              <div className="mt-3">
+                                  <span className="text-[10px] uppercase font-black text-gray-400 block mb-1">Receipt Screenshot:</span>
+                                  <div className="relative group w-32 h-32 rounded-lg overflow-hidden border border-emerald-200 bg-gray-50 flex items-center justify-center cursor-pointer" onClick={() => setZoomedReceipt(customer.pendingUpdates?.pendingPayment?.receiptImage || null)}>
+                                      <img src={customer.pendingUpdates.pendingPayment.receiptImage} className="w-full h-full object-cover" alt="Receipt Screenshot" />
+                                      <div className="absolute inset-0 bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                                          <Eye size={16} className="mr-1" /> View Receipt
+                                      </div>
+                                  </div>
+                              </div>
+                          )}
+                          <div className="text-[9px] text-slate-400 mt-2 italic">
+                              Submitted on {new Date(customer.pendingUpdates.pendingPayment.timestamp || customer.pendingUpdates.timestamp).toLocaleString()}
+                          </div>
+                      </div>
+                      <div className="flex gap-2">
+                          <button 
+                              onClick={() => handleApprovePayment(customer)}
+                              className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl font-bold text-xs uppercase tracking-wider transition-colors shadow-sm cursor-pointer flex justify-center items-center gap-1.5"
+                          >
+                              <CheckCircle2 size={14} /> Approve & Settle Dues
+                          </button>
+                          <button 
+                              onClick={() => handleRejectPayment(customer)}
+                              className="px-3 py-2 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded-xl font-bold text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                          >
+                              Reject
                           </button>
                       </div>
                   </div>
@@ -594,6 +763,87 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
                 <div className="space-y-2 pt-2 bg-gray-50/50 p-4 rounded-2xl border border-gray-100"><div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-wider"><span>Subtotal</span><span>₹{viewingSale.subtotal.toFixed(0)}</span></div><div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-wider"><span>Tax</span><span>₹{viewingSale.tax.toFixed(0)}</span></div><div className="flex justify-between text-xl font-black text-gray-950 border-t border-gray-200 pt-3 mt-2"><span>Total Paid</span><span className="text-emerald-600">₹{viewingSale.total.toFixed(0)}</span></div><div className="flex justify-between text-[10px] text-gray-400 font-black uppercase tracking-[0.2em] mt-2"><span>Method: {viewingSale.paymentMethod || 'Cash'}</span><span>Auth: Verified</span></div></div>
                 <div className="flex gap-3 mt-4"><Button variant="neutral" className="flex-1 py-3 font-bold border-2 border-gray-200" onClick={() => { setViewingSale(null); window.history.back(); }}>Dismiss</Button><Button className="flex-1 flex items-center justify-center gap-3 py-3 font-black uppercase tracking-widest bg-gray-900 rounded-2xl shadow-xl shadow-gray-100 active:scale-95" onClick={() => generateInvoicePDF(viewingSale)}><Printer size={18}/> Print Bill</Button></div>
             </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={!!verifyingCustomer} onClose={() => { setVerifyingCustomer(null); }} title="Verify Customer Payment" className="!max-w-md bg-white border-2 border-amber-300 shadow-2xl !p-5">
+        {verifyingCustomer && verifyingCustomer.pendingUpdates?.pendingPayment && (
+          <div className="space-y-4">
+            <div className="bg-amber-50 p-4 rounded-2xl border-2 border-amber-100 text-center mb-2">
+              <span className="text-[10px] text-amber-600 uppercase font-black tracking-widest block mb-1">Customer Submitted Payment</span>
+              <span className="text-3xl font-black text-amber-800">₹{verifyingCustomer.pendingUpdates.pendingPayment.amount}</span>
+            </div>
+            
+            <div className="space-y-3 bg-slate-50 p-4 rounded-xl border border-slate-200 text-sm">
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-500 uppercase text-left">Customer Name:</span>
+                <span className="font-extrabold text-slate-800 text-right">{verifyingCustomer.name}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-500 uppercase text-left">Phone:</span>
+                <span className="font-mono text-slate-700 font-bold text-right">{verifyingCustomer.phone}</span>
+              </div>
+              <div className="flex justify-between items-center pb-2 border-b border-slate-200">
+                <span className="text-xs font-bold text-slate-500 uppercase text-left">Date Submitted:</span>
+                <span className="font-bold text-slate-700 text-right">{verifyingCustomer.pendingUpdates.pendingPayment.date}</span>
+              </div>
+              {verifyingCustomer.pendingUpdates.pendingPayment.note && (
+                <div className="pb-2 border-b border-slate-200 text-left">
+                  <span className="text-xs font-bold text-slate-500 uppercase block mb-1">UTR / Ref Note:</span>
+                  <p className="font-bold text-slate-800 bg-white p-2 rounded-lg border border-slate-100 break-all">{verifyingCustomer.pendingUpdates.pendingPayment.note}</p>
+                </div>
+              )}
+              {verifyingCustomer.pendingUpdates.pendingPayment.receiptImage && (
+                <div className="text-left">
+                  <span className="text-xs font-bold text-slate-500 uppercase block mb-1">Receipt Screenshot:</span>
+                  <div className="relative group w-full h-48 rounded-xl overflow-hidden border border-slate-300 bg-white flex items-center justify-center cursor-pointer" onClick={() => setZoomedReceipt(verifyingCustomer.pendingUpdates?.pendingPayment?.receiptImage || null)}>
+                    <img src={verifyingCustomer.pendingUpdates.pendingPayment.receiptImage} className="w-full h-full object-contain bg-slate-100" alt="Receipt Screenshot" />
+                    <div className="absolute inset-0 bg-black/40 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity rounded-xl">
+                      <Eye size={18} className="mr-1.5" /> View Fullscreen
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <div className="text-xs text-slate-500 text-center py-1 font-semibold">
+              Please open your UPI/Bank app first to confirm the credits match.
+            </div>
+
+            <div className="flex flex-col gap-2 pt-2">
+              <Button 
+                onClick={() => handleApprovePayment(verifyingCustomer)}
+                className="w-full py-3.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black uppercase tracking-wider rounded-xl shadow-lg flex justify-center items-center gap-2"
+              >
+                <CheckCircle2 size={16} /> Approve & Clear Dues
+              </Button>
+              <div className="flex gap-2">
+                <button 
+                  onClick={() => handleRejectPayment(verifyingCustomer)}
+                  className="flex-1 py-2.5 bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold rounded-lg text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Reject & Delete
+                </button>
+                <button 
+                  onClick={() => setVerifyingCustomer(null)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-lg text-xs uppercase tracking-wider transition-colors cursor-pointer"
+                >
+                  Verify Later
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      <Modal isOpen={!!zoomedReceipt} onClose={() => setZoomedReceipt(null)} title="Payment Receipt Proof" className="!max-w-2xl bg-black text-white !p-2">
+        {zoomedReceipt && (
+          <div className="flex flex-col items-center justify-center relative bg-black rounded-lg min-h-[300px]">
+            <img src={zoomedReceipt} className="max-w-full max-h-[75vh] object-contain rounded-md" alt="Receipt Proof Fullscreen" />
+            <button onClick={() => setZoomedReceipt(null)} className="absolute top-3 right-3 bg-white/25 hover:bg-white/40 text-white p-2 rounded-full transition-all cursor-pointer">
+              <X size={20} />
+            </button>
+          </div>
         )}
       </Modal>
     </div>
