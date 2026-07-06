@@ -322,6 +322,24 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       loadData();
   };
 
+  const getMailtoLink = (customer: Customer) => {
+      const portalLink = `${window.location.origin}/?c=${customer.id}`;
+      const subject = encodeURIComponent(`Your Noor Store Customer Portal & Statement`);
+      const body = encodeURIComponent(
+          `Hello ${customer.name},\n\n` +
+          `Thank you for your business with Noor Store.\n\n` +
+          `You can track your invoices, check outstanding dues, and upload UPI payment receipts securely using your unique customer portal link below:\n` +
+          `${portalLink}\n\n` +
+          `Current Statement:\n` +
+          `- Outstanding Dues: ₹${customer.totalDues || 0}\n` +
+          `- Total Purchases: ₹${customer.totalSpent.toLocaleString()}\n` +
+          `- Total Visits: ${customer.visitCount}\n\n` +
+          `Best regards,\n` +
+          `Noor Store`
+      );
+      return `mailto:${customer.email}?subject=${subject}&body=${body}`;
+  };
+
   const handleShareWhatsApp = (customer: Customer) => {
       const portalLink = `${window.location.origin}/?c=${customer.id}`;
       const message = `Hello ${customer.name},%0A%0AWe appreciate your business with Noor Store.%0A%0AHere is your unique customer portal link to track invoices, check outstanding dues, and pay securely:%0A${encodeURIComponent(portalLink)}`;
@@ -636,7 +654,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
                                {copiedPortal ? 'Copied!' : 'Share'}
                            </span>
                        </button>
-                       {customer.email && <a href={`mailto:${customer.email}`} className="flex flex-col items-center gap-1 p-2 min-w-[65px] hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"><div className="w-9 h-9 rounded-full bg-red-50 text-red-600 group-hover:bg-red-100 flex items-center justify-center shadow-sm"><Mail size={18}/></div><span className="text-[10px] font-bold text-red-600 uppercase tracking-wide">Email</span></a>}
+                       {customer.email && <a href={getMailtoLink(customer)} className="flex flex-col items-center gap-1 p-2 min-w-[65px] hover:bg-gray-50 rounded-xl transition-colors cursor-pointer group"><div className="w-9 h-9 rounded-full bg-red-50 text-red-600 group-hover:bg-red-100 flex items-center justify-center shadow-sm"><Mail size={18}/></div><span className="text-[10px] font-bold text-red-600 uppercase tracking-wide">Email</span></a>}
                        {(customer.totalDues || 0) > 0 && <button onClick={() => openPaymentModal(customer)} className="flex flex-col items-center gap-1 p-2 min-w-[65px] hover:bg-emerald-50 rounded-xl transition-colors cursor-pointer group"><div className="w-9 h-9 rounded-full bg-emerald-600 text-white flex items-center justify-center shadow-md shadow-emerald-500/20 group-hover:bg-emerald-700 animate-in zoom-in duration-300"><Wallet size={18}/></div><span className="text-[10px] font-bold text-emerald-600 uppercase tracking-wide">Settle</span></button>}
                   </div>
               </div>
