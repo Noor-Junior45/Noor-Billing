@@ -117,6 +117,10 @@ export function customerFromDb(row: any): Customer {
 
 // ---------- SALE ----------
 export function saleToDb(s: Sale, userId: string) {
+  const paymentSplit = s.paymentSplit ? [...s.paymentSplit] : [];
+  if (s.paidAt) {
+    paymentSplit.push({ method: 'metadata_paid_at', amount: 0, note: s.paidAt } as any);
+  }
   return {
     id: s.id,
     user_id: userId,
@@ -130,10 +134,21 @@ export function saleToDb(s: Sale, userId: string) {
     timestamp: s.timestamp,
     served_by: s.servedBy,
     payment_method: s.paymentMethod,
+    payment_split: paymentSplit.length > 0 ? paymentSplit : null,
   };
 }
 
 export function saleFromDb(row: any): Sale {
+  const paymentSplit = row.payment_split ?? undefined;
+  let paidAt: string | undefined = undefined;
+  let filteredSplit = paymentSplit;
+  if (Array.isArray(paymentSplit)) {
+    const metaIndex = paymentSplit.findIndex((item: any) => item && item.method === 'metadata_paid_at');
+    if (metaIndex > -1) {
+      paidAt = paymentSplit[metaIndex].note;
+      filteredSplit = paymentSplit.filter((_, idx) => idx !== metaIndex);
+    }
+  }
   return {
     id: row.id,
     customerId: row.customer_id ?? undefined,
@@ -146,6 +161,8 @@ export function saleFromDb(row: any): Sale {
     timestamp: row.timestamp,
     servedBy: row.served_by,
     paymentMethod: row.payment_method,
+    paymentSplit: filteredSplit && filteredSplit.length > 0 ? filteredSplit : undefined,
+    paidAt,
   };
 }
 

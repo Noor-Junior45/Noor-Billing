@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tab, User, Customer, Sale, StoreSettings } from './types';
 import { StoreService } from './services/storeService';
 import { supabase } from './services/supabase';
+import { saleFromDb } from './services/mappers';
 import { Auth } from './pages/Auth';
 import { POS } from './pages/POS';
 import { Customers as CRM } from './pages/Customers';
@@ -53,6 +54,38 @@ import { PrivacyPolicy, TermsOfService } from './components/legal/LegalDocuments
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.POS);
+  const [unsyncedOperations, setUnsyncedOperations] = useState<Set<string>>(new Set());
+
+  useEffect(() => {
+    const handleSyncFailed = (e: any) => {
+      const op = e.detail?.operation;
+      if (op) {
+        setUnsyncedOperations(prev => {
+          const next = new Set(prev);
+          next.add(op);
+          return next;
+        });
+      }
+    };
+
+    const handleSyncSuccess = (e: any) => {
+      const op = e.detail?.operation;
+      if (op) {
+        setUnsyncedOperations(prev => {
+          const next = new Set(prev);
+          next.delete(op);
+          return next;
+        });
+      }
+    };
+
+    window.addEventListener('sync-failed', handleSyncFailed);
+    window.addEventListener('sync-success', handleSyncSuccess);
+    return () => {
+      window.removeEventListener('sync-failed', handleSyncFailed);
+      window.removeEventListener('sync-success', handleSyncSuccess);
+    };
+  }, []);
   const [loading, setLoading] = useState(true);
   const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
@@ -1014,6 +1047,20 @@ export default function App() {
         </div>
       </Modal>
 
+      {/* Sync Failed Banner */}
+      {unsyncedOperations.size > 0 && (
+        <div className="fixed bottom-4 left-4 right-4 md:left-auto md:right-4 md:w-96 bg-red-50 border-2 border-red-200 rounded-xl p-4 shadow-xl z-50 animate-in fade-in slide-in-from-bottom-4">
+          <div className="flex items-start gap-3">
+            <span className="text-red-600 font-extrabold text-lg shrink-0">⚠</span>
+            <div className="text-left">
+              <h4 className="font-bold text-red-900 text-sm">Sync Issue</h4>
+              <p className="text-red-700 text-xs mt-0.5 font-medium leading-relaxed">
+                Some changes haven't synced yet — check your connection.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
 
     </div>
   );
@@ -1541,10 +1588,11 @@ function DigitalInvoiceView({ saleId }: InvoiceProps) {
         const storeSettings = await StoreService.getSettings();
         setSettings(storeSettings);
 
-        const salesList = await StoreService.getSales();
-        const foundSale = salesList.find(s => s.id === saleId);
+        const { data, error } = await supabase.rpc('get_public_invoice', { invoice_id: saleId });
+        if (error) throw error;
+        const foundSale = data?.[0] ?? null;
         if (foundSale) {
-          setSale(foundSale);
+          setSale(saleFromDb(foundSale));
         }
       } catch (err) {
         console.warn('Error loading invoice details:', err);

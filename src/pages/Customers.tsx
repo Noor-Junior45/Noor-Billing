@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Customer, Sale, Payment, Tab } from '../types';
+import { Customer, Sale, Payment, Tab, StoreSettings } from '../types';
 import { StoreService } from '../services/storeService';
 import { generateInvoicePDF } from '../services/pdfService';
 import { Card, Button, Input, Modal, Badge } from '../components/UI';
@@ -13,6 +13,7 @@ interface CustomersProps {
 export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearAction }) => {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [sales, setSales] = useState<Sale[]>([]);
+  const [settings, setSettings] = useState<StoreSettings | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
@@ -138,9 +139,11 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
   const loadData = async () => {
     const cData = await StoreService.getCustomers();
     const sData = await StoreService.getSales();
+    const sSettings = await StoreService.getSettings();
     
     setCustomers(cData);
     setSales(sData);
+    setSettings(sSettings);
 
     // Keep selected customer up-to-date with pendingUpdates
     if (selectedCustomer) {
@@ -336,25 +339,39 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
 
   const getMailtoLink = (customer: Customer) => {
       const portalLink = `${window.location.origin}/?c=${customer.id}`;
-      const subject = encodeURIComponent(`Your Noor Store Customer Portal & Statement`);
+      const storeName = settings?.storeName || 'Noor Billing';
+      const storePhone = settings?.storePhone ? `phone: ${settings.storePhone}` : '';
+      const storeEmail = settings?.storeEmail ? `email: ${settings.storeEmail}` : '';
+      const storeAddress = settings?.storeAddress || '';
+
+      const subject = encodeURIComponent(`Your ${storeName} Customer Portal & Statement`);
+      
+      let contactInfo = '';
+      if (storePhone || storeEmail) {
+          contactInfo = `If you have any questions, feel free to contact us at ${[storePhone, storeEmail].filter(Boolean).join(' or ')}.\n\n`;
+      }
+
       const body = encodeURIComponent(
           `Hello ${customer.name},\n\n` +
-          `Thank you for your business with Noor Store.\n\n` +
-          `You can track your invoices, check outstanding dues, and upload UPI payment receipts securely using your unique customer portal link below:\n` +
+          `Thank you for your business with ${storeName}.\n\n` +
+          `To view your statement history, track invoices, or upload UPI payment receipts, please access your secure personal portal link below:\n` +
           `${portalLink}\n\n` +
-          `Current Statement:\n` +
-          `- Outstanding Dues: ₹${customer.totalDues || 0}\n` +
-          `- Total Purchases: ₹${customer.totalSpent.toLocaleString()}\n` +
-          `- Total Visits: ${customer.visitCount}\n\n` +
+          `--- CURRENT STATEMENT ---\n` +
+          `• Outstanding Dues: ₹${customer.totalDues || 0}\n` +
+          `• Total Purchases: ₹${customer.totalSpent.toLocaleString()}\n` +
+          `• Total Visits: ${customer.visitCount}\n\n` +
+          `${contactInfo}` +
           `Best regards,\n` +
-          `Noor Store`
+          `${storeName}\n` +
+          `${storeAddress}`
       );
       return `mailto:${customer.email}?subject=${subject}&body=${body}`;
   };
 
   const handleShareWhatsApp = (customer: Customer) => {
       const portalLink = `${window.location.origin}/?c=${customer.id}`;
-      const message = `Hello ${customer.name},%0A%0AWe appreciate your business with Noor Store.%0A%0AHere is your unique customer portal link to track invoices, check outstanding dues, and pay securely:%0A${encodeURIComponent(portalLink)}`;
+      const storeName = settings?.storeName || 'Noor Billing';
+      const message = `Hello ${customer.name},%0A%0AWe appreciate your business with ${encodeURIComponent(storeName)}.%0A%0AHere is your secure personal portal link to track invoices, check outstanding dues, and upload UPI payment receipts:%0A${encodeURIComponent(portalLink)}`;
       const url = `https://wa.me/${customer.phone.replace(/[^0-9]/g, '')}?text=${message}`;
       window.open(url, '_blank');
   };

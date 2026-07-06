@@ -1,5 +1,5 @@
 {
-  "name": "Billing App",
+  "name": "Noor Billing",
   "description": "Companion app for warehouse POS billing, CRM contact tracking, and profile settings using Supabase backend.",
   "requestFramePermissions": [
     "camera"

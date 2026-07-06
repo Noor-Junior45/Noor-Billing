@@ -101,6 +101,19 @@ const getUid = () => {
   return 'guest';
 };
 
+const dispatchSyncFailed = (operation: string, error: any) => {
+  console.warn(`Sync failed for ${operation}:`, error);
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('sync-failed', { detail: { operation } }));
+  }
+};
+
+const dispatchSyncSuccess = (operation: string) => {
+  if (typeof window !== 'undefined') {
+    window.dispatchEvent(new CustomEvent('sync-success', { detail: { operation } }));
+  }
+};
+
 const StoreService = {
   clearCache() {
     cache = null;
@@ -389,7 +402,11 @@ const StoreService = {
         // Trigger Supabase sync in the background
         const uid = getUid();
         Promise.resolve(supabase.from('products').upsert(productToDb(updated, uid)))
-          .catch(e => console.error("Supabase sync failed for updateProduct:", e));
+          .then(() => dispatchSyncSuccess('updateProduct'))
+          .catch(e => {
+            console.error("Supabase sync failed for updateProduct:", e);
+            dispatchSyncFailed('updateProduct', e);
+          });
       }
   },
   
@@ -503,7 +520,11 @@ const StoreService = {
             }
             return Promise.all([...productUpserts, customerUpsert]);
         })
-        .catch(e => console.warn("Supabase sync failed for createSale, running in offline mode:", e));
+        .then(() => dispatchSyncSuccess('createSale'))
+        .catch(e => {
+            console.warn("Supabase sync failed for createSale, running in offline mode:", e);
+            dispatchSyncFailed('createSale', e);
+        });
 
       return ns; 
   },
@@ -534,7 +555,11 @@ const StoreService = {
               supabase.from('sales').delete().eq('id', delItem.originalId)
           );
           Promise.all([...deletedUpserts, ...salesDeletes])
-             .catch(e => console.warn("Supabase sync failed for deleteSales, running in offline mode:", e));
+             .then(() => dispatchSyncSuccess('deleteSales'))
+             .catch(e => {
+                 console.warn("Supabase sync failed for deleteSales, running in offline mode:", e);
+                 dispatchSyncFailed('deleteSales', e);
+             });
       }
   },
   
@@ -546,7 +571,11 @@ const StoreService = {
         this.saveToLocalCache(); 
         const uid = getUid();
         Promise.resolve(supabase.from('sales').upsert(saleToDb(sale, uid)))
-          .catch(e => console.warn("Supabase sync failed for updateSale, running in offline mode:", e));
+          .then(() => dispatchSyncSuccess('updateSale'))
+          .catch(e => {
+              console.warn("Supabase sync failed for updateSale, running in offline mode:", e);
+              dispatchSyncFailed('updateSale', e);
+          });
       }
   },
 
@@ -584,7 +613,11 @@ const StoreService = {
       this.saveToLocalCache();
       
       Promise.resolve(supabase.from('customers').upsert(customerToDb(updatedCustomer, uid)))
-        .catch(e => console.warn("Supabase sync failed for upsertCustomer, running in offline mode:", e));
+        .then(() => dispatchSyncSuccess('upsertCustomer'))
+        .catch(e => {
+            console.warn("Supabase sync failed for upsertCustomer, running in offline mode:", e);
+            dispatchSyncFailed('upsertCustomer', e);
+        });
       return updatedCustomer;
   },
   
@@ -623,12 +656,49 @@ const StoreService = {
           
           c.payments.push({ id: generateId(), amount: amt, method, note, date, receiptImage: receiptUrl });
           c.totalDues = Math.max(0, c.totalDues - amt);
+
+          // Deduct outstanding dues from the customer's sales (FIFO / oldest first)
+          let remainingPayment = amt;
+          const unpaidSales = d.sales
+              .filter(s => s.customerId === cid)
+              .filter(s => {
+                  const paid = s.amountPaid !== undefined ? s.amountPaid : (s.paymentMethod === 'Pay Later' ? 0 : s.total);
+                  return (s.total - paid) > 0.01;
+              })
+              .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+
+          const uid = getUid();
+          const salePromises: Promise<any>[] = [];
+
+          for (const s of unpaidSales) {
+              if (remainingPayment <= 0) break;
+              const currentPaid = s.amountPaid !== undefined ? s.amountPaid : (s.paymentMethod === 'Pay Later' ? 0 : s.total);
+              const saleDue = s.total - currentPaid;
+              const applyAmt = Math.min(remainingPayment, saleDue);
+              
+              s.amountPaid = currentPaid + applyAmt;
+              remainingPayment -= applyAmt;
+
+              if (Math.abs(s.total - s.amountPaid) < 0.01) {
+                  s.paidAt = date; // Marked as paid with paid date
+              }
+              
+              if (uid && uid !== 'guest') {
+                  salePromises.push(
+                      Promise.resolve(supabase.from('sales').upsert(saleToDb(s, uid)))
+                          .catch(err => console.warn(`Failed to update sale ${s.id} in cloud:`, err))
+                  );
+              }
+          }
           
           this.saveToLocalCache();
 
-          const uid = getUid();
-          Promise.resolve(supabase.from('customers').upsert(customerToDb(c, uid)))
-            .catch(e => console.warn("Supabase sync failed for addCustomerPayment, running in offline mode:", e));
+          if (uid && uid !== 'guest') {
+              Promise.all([
+                  supabase.from('customers').upsert(customerToDb(c, uid)),
+                  ...salePromises
+              ]).catch(e => console.warn("Supabase sync failed for addCustomerPayment, running in offline mode:", e));
+          }
       }
   },
 

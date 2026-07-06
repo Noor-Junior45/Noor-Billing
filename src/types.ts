@@ -130,6 +130,8 @@ export interface Sale {
   timestamp: string;
   servedBy?: string;
   paymentMethod?: string;
+  paymentSplit?: { method: string, amount: number }[];
+  paidAt?: string;
 }
 
 export interface DeletedItem {

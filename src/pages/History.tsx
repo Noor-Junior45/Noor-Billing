@@ -15,7 +15,8 @@ import {
   User,
   Save,
   Trash2,
-  Star
+  Star,
+  RotateCcw
 } from 'lucide-react';
 
 interface HistoryProps {
@@ -45,6 +46,23 @@ export const History: React.FC<HistoryProps> = ({
   const [editingSaleData, setEditingSaleData] = useState<Sale | null>(null);
   const [showEditWarning, setShowEditWarning] = useState(false);
 
+  // Return / Exchange Flow State
+  const [isReturning, setIsReturning] = useState(false);
+  const [returnQuantities, setReturnQuantities] = useState<Record<number, number>>({});
+  const [selectedReturnIndices, setSelectedReturnIndices] = useState<Set<number>>(new Set());
+  const [returnRefundMethod, setReturnRefundMethod] = useState<'Cash' | 'UPI' | 'Card' | 'Adjust Balance'>('Cash');
+
+  const startReturnFlow = (sale: Sale) => {
+    setIsReturning(true);
+    setReturnRefundMethod(sale.customerId ? 'Adjust Balance' : 'Cash');
+    setSelectedReturnIndices(new Set());
+    const initialQuants: Record<number, number> = {};
+    sale.items.forEach((item, index) => {
+      initialQuants[index] = item.quantity;
+    });
+    setReturnQuantities(initialQuants);
+  };
+
   // Filter sales based on user permissions
   const displayedSales = useMemo(() => {
     if (!currentUser) return recentSales;
@@ -63,6 +81,10 @@ export const History: React.FC<HistoryProps> = ({
   // Handle navigation pop
   useEffect(() => {
     const handleNavigationPop = (e: any) => {
+      if (isReturning) {
+        setIsReturning(false);
+        return;
+      }
       if (isEditingSale) {
         setIsEditingSale(false);
         return;
@@ -88,7 +110,7 @@ export const History: React.FC<HistoryProps> = ({
 
     window.addEventListener('app-navigation-pop' as any, handleNavigationPop);
     return () => window.removeEventListener('app-navigation-pop' as any, handleNavigationPop);
-  }, [isEditingSale, saleDetail, showDeleteConfirm, showDuesError, isSelectionMode]);
+  }, [isReturning, isEditingSale, saleDetail, showDeleteConfirm, showDuesError, isSelectionMode]);
 
   const toggleSaleSelection = (id: string) => {
     const newSet = new Set(selectedSales);
@@ -277,7 +299,18 @@ export const History: React.FC<HistoryProps> = ({
                         <span className="text-xs font-bold text-red-500 mt-1">Due: ₹{balance.toFixed(2)}</span>
                       </div>
                     ) : (
-                      <div className="text-xs text-gray-400 mt-1">{new Date(sale.timestamp).toLocaleDateString()}</div>
+                      <div className="flex flex-col items-end">
+                        {sale.paidAt ? (
+                          <>
+                            <span className="text-[10px] uppercase font-bold text-emerald-600 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                              Paid
+                            </span>
+                            <span className="text-[10px] font-bold text-emerald-600 mt-1">Paid: {new Date(sale.paidAt).toLocaleDateString()}</span>
+                          </>
+                        ) : (
+                          <div className="text-xs text-gray-400 mt-1">{new Date(sale.timestamp).toLocaleDateString()}</div>
+                        )}
+                      </div>
                     )}
                   </div>
                 </div>
@@ -327,49 +360,255 @@ export const History: React.FC<HistoryProps> = ({
         isOpen={!!saleDetail}
         onClose={() => {
           setSaleDetail(null);
+          setIsReturning(false);
           window.history.back();
         }}
-        title="Sale Details"
-        className="!max-w-lg"
+        title={isReturning ? "Process Return / Exchange" : "Sale Details"}
+        className={isReturning ? "!max-w-xl bg-white border-2 border-slate-300 shadow-2xl !p-4" : "!max-w-lg bg-white border-2 border-slate-300 shadow-2xl !p-4"}
       >
         {saleDetail && (
-          <div className="animate-in fade-in zoom-in-95">
-            <div className="flex justify-between items-start mb-6 border-b border-gray-100 pb-4">
-              <div>
-                <div className="text-xs text-gray-400 font-bold uppercase mb-1">Customer</div>
-                <div className="text-lg font-bold text-gray-900">{saleDetail.customerName}</div>
-                <div className="text-sm text-gray-500 mt-1">{new Date(saleDetail.timestamp).toLocaleString()}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-400 font-bold uppercase mb-1">Total</div>
-                <div className="text-2xl font-extrabold text-gray-800">₹{saleDetail.total.toFixed(2)}</div>
-              </div>
-            </div>
-            <div className="space-y-2 mb-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-lg border border-gray-200">
-              {saleDetail.items.map((item, i) => (
-                <div key={i} className="flex justify-between text-sm py-1 border-b border-gray-200 last:border-0">
-                  <span>
-                    {item.name} <span className="text-gray-400 text-xs">x{item.quantity}</span>
-                  </span>
-                  <span className="font-bold text-gray-700">
-                    ₹{((item.sellPrice * item.quantity) - (item.discount || 0)).toFixed(2)}
-                  </span>
+          isReturning ? (
+            <div className="animate-in fade-in zoom-in-95 space-y-4 text-left">
+              <div className="bg-red-50 border-2 border-red-200 rounded-2xl p-4 text-left">
+                <div className="flex items-center gap-2 text-red-700 font-black text-sm uppercase tracking-wider mb-1">
+                  <RotateCcw size={16} /> Return Mode
                 </div>
-              ))}
+                <div className="text-xs text-red-600 font-bold">
+                  Selecting items will create a return transaction. Products will be automatically restocked, and customer balance will be updated.
+                </div>
+              </div>
+
+              {/* Items List */}
+              <div className="space-y-2.5 max-h-64 overflow-y-auto bg-slate-50 p-3 rounded-xl border-2 border-slate-200 text-left">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-1">Select Items to Return</span>
+                {saleDetail.items.map((item, idx) => {
+                  const isChecked = selectedReturnIndices.has(idx);
+                  const returnQty = returnQuantities[idx] || 0;
+                  const itemPrice = item.customPrice ?? item.sellPrice;
+                  // Proportional discount
+                  const originalQty = item.quantity;
+                  const propDisc = originalQty > 0 ? ((item.discount || 0) * (returnQty / originalQty)) : 0;
+                  const rowRefund = (itemPrice * returnQty) - propDisc;
+
+                  return (
+                    <div key={idx} className={`p-3 rounded-lg border-2 bg-white transition-all ${isChecked ? 'border-red-400 bg-red-50/20' : 'border-slate-100'}`}>
+                      <div className="flex items-center justify-between">
+                        <label className="flex items-center gap-2 cursor-pointer select-none flex-1">
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            onChange={() => {
+                              const newSet = new Set(selectedReturnIndices);
+                              if (newSet.has(idx)) newSet.delete(idx);
+                              else newSet.add(idx);
+                              setSelectedReturnIndices(newSet);
+                            }}
+                            className="w-4.5 h-4.5 rounded text-red-600 border-slate-300 focus:ring-red-500 cursor-pointer"
+                          />
+                          <div>
+                            <span className="text-xs font-black text-slate-800 block">{item.name}</span>
+                            <span className="text-[10px] font-bold text-slate-400">Sold Quantity: {item.quantity} {item.unit || 'pcs'} @ ₹{itemPrice.toFixed(2)}</span>
+                          </div>
+                        </label>
+                        <span className="text-xs font-black text-slate-950">₹{rowRefund.toFixed(2)}</span>
+                      </div>
+
+                      {isChecked && (
+                        <div className="flex items-center justify-between mt-2.5 pt-2.5 border-t border-dashed border-slate-200">
+                          <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider">Return Qty:</span>
+                          <div className="flex items-center gap-2 bg-slate-100 rounded-lg p-1 border border-slate-200">
+                            <button
+                              type="button"
+                              disabled={returnQty <= 1}
+                              onClick={() => setReturnQuantities(prev => ({ ...prev, [idx]: Math.max(1, returnQty - 1) }))}
+                              className="w-7 h-7 font-black text-slate-800 bg-white border border-slate-300 rounded-md hover:bg-slate-200 flex items-center justify-center disabled:opacity-45 cursor-pointer active:scale-95"
+                            >
+                              -
+                            </button>
+                            <span className="text-xs font-black text-slate-800 w-6 text-center">{returnQty}</span>
+                            <button
+                              type="button"
+                              disabled={returnQty >= item.quantity}
+                              onClick={() => setReturnQuantities(prev => ({ ...prev, [idx]: Math.min(item.quantity, returnQty + 1) }))}
+                              className="w-7 h-7 font-black text-slate-800 bg-white border border-slate-300 rounded-md hover:bg-slate-200 flex items-center justify-center disabled:opacity-45 cursor-pointer active:scale-95"
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+
+              {/* Refund Method Selection */}
+              <div className="bg-slate-50 p-3 rounded-xl border-2 border-slate-200 text-left">
+                <span className="text-[10px] font-black text-slate-500 uppercase tracking-wider block mb-2">Refund Method</span>
+                <div className="grid grid-cols-4 gap-2">
+                  {(['Cash', 'UPI', 'Card', 'Adjust Balance'] as const).map(method => {
+                    const isDisabled = method === 'Adjust Balance' && !saleDetail.customerId;
+                    const isSelected = returnRefundMethod === method;
+                    return (
+                      <button
+                        key={method}
+                        type="button"
+                        disabled={isDisabled}
+                        onClick={() => setReturnRefundMethod(method)}
+                        className={`py-2 px-1 text-[10px] font-black uppercase tracking-wider rounded-lg border-2 transition-all cursor-pointer flex flex-col items-center justify-center ${isDisabled ? 'opacity-30 pointer-events-none' : isSelected ? 'bg-red-600 border-red-600 text-white shadow-sm' : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-100'}`}
+                      >
+                        <span>{method}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Refund Total Calculation */}
+              {(() => {
+                let refundSubtotal = 0;
+                let refundDiscount = 0;
+                let refundTax = 0;
+                selectedReturnIndices.forEach(idx => {
+                  const item = saleDetail.items[idx];
+                  const returnQty = returnQuantities[idx] || 0;
+                  const itemPrice = item.customPrice ?? item.sellPrice;
+                  const originalQty = item.quantity;
+                  const propDisc = originalQty > 0 ? ((item.discount || 0) * (returnQty / originalQty)) : 0;
+                  refundSubtotal += itemPrice * returnQty;
+                  refundDiscount += propDisc;
+                  const taxRate = item.taxRate !== undefined && item.taxRate !== null && item.taxRate !== 0 
+                    ? item.taxRate 
+                    : (settings?.taxRateDefault ?? 0);
+                  refundTax += (itemPrice * returnQty) * (taxRate / 100);
+                });
+                const refundNetTotal = refundSubtotal - refundDiscount + refundTax;
+
+                return (
+                  <div className="bg-slate-900 border-2 border-slate-950 text-white p-4 rounded-2xl flex justify-between items-center text-left">
+                    <div>
+                      <span className="text-[10px] font-bold text-slate-400 block uppercase tracking-wider">Estimated Refund Total</span>
+                      <span className="text-2xl font-black text-red-400">₹{refundNetTotal.toFixed(2)}</span>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        variant="neutral"
+                        onClick={() => setIsReturning(false)}
+                        className="!bg-white/10 hover:!bg-white/20 text-white border-white/20 !px-4"
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        disabled={selectedReturnIndices.size === 0}
+                        onClick={async () => {
+                          if (selectedReturnIndices.size === 0) return;
+                          
+                          const returnedItemsMapped = Array.from(selectedReturnIndices).map(idx => {
+                            const item = saleDetail.items[idx];
+                            const returnQty = returnQuantities[idx] || 0;
+                            const itemPrice = item.customPrice ?? item.sellPrice;
+                            const originalQty = item.quantity;
+                            const propDisc = originalQty > 0 ? ((item.discount || 0) * (returnQty / originalQty)) : 0;
+                            return {
+                              ...item,
+                              quantity: -returnQty, // negative qty for restocking!
+                              discount: -propDisc
+                            };
+                          });
+
+                          const returnSalePayload = {
+                            customerId: saleDetail.customerId,
+                            customerName: saleDetail.customerName + ' (Return)',
+                            items: returnedItemsMapped,
+                            subtotal: -refundSubtotal,
+                            tax: -refundTax,
+                            total: -refundNetTotal,
+                            amountPaid: returnRefundMethod === 'Adjust Balance' ? 0 : -refundNetTotal,
+                            paymentMethod: returnRefundMethod === 'Adjust Balance' ? 'Pay Later' : returnRefundMethod,
+                            servedBy: currentUser?.name || 'Staff'
+                          };
+
+                          await StoreService.createSale(returnSalePayload);
+                          setIsReturning(false);
+                          setSaleDetail(null);
+                          window.history.back();
+                          loadData();
+                        }}
+                        className="bg-red-600 hover:bg-red-700 text-white shadow-md active:scale-95 disabled:opacity-40"
+                      >
+                        Confirm Return
+                      </Button>
+                    </div>
+                  </div>
+                );
+              })()}
             </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Button
-                variant="neutral"
-                onClick={initiateEditSale}
-                className="flex items-center justify-center gap-2 border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 hover:border-amber-300"
-              >
-                <Edit3 size={18} /> Edit
-              </Button>
-              <Button className="flex items-center justify-center gap-2" onClick={() => generateInvoicePDF(saleDetail)}>
-                <Printer size={18} /> Print
-              </Button>
+          ) : (
+            <div className="animate-in fade-in zoom-in-95">
+              <div className="flex justify-between items-start mb-6 border-b border-gray-100 pb-4 text-left">
+                <div>
+                  <div className="text-xs text-gray-400 font-bold uppercase mb-1">Customer</div>
+                  <div className="text-lg font-bold text-gray-900">{saleDetail.customerName}</div>
+                  <div className="text-sm text-gray-500 mt-1">{new Date(saleDetail.timestamp).toLocaleString()}</div>
+                  {(() => {
+                    const paid = saleDetail.amountPaid !== undefined ? saleDetail.amountPaid : (saleDetail.paymentMethod === 'Pay Later' ? 0 : saleDetail.total);
+                    const balance = saleDetail.total - paid;
+                    const isDue = balance > 1;
+                    return isDue ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-red-700 bg-red-100 border border-red-200 uppercase tracking-wider">
+                        Unpaid (Due: ₹{balance.toFixed(2)})
+                      </div>
+                    ) : saleDetail.paidAt ? (
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-emerald-700 bg-emerald-100 border border-emerald-200 uppercase tracking-wider">
+                        Paid on {new Date(saleDetail.paidAt).toLocaleDateString()}
+                      </div>
+                    ) : (
+                      <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[10px] font-bold text-gray-700 bg-gray-100 border border-gray-200 uppercase tracking-wider">
+                        Paid
+                      </div>
+                    );
+                  })()}
+                </div>
+                <div className="text-right">
+                  <div className="text-xs text-gray-400 font-bold uppercase mb-1">Total</div>
+                  <div className="text-2xl font-extrabold text-gray-800">₹{saleDetail.total.toFixed(2)}</div>
+                </div>
+              </div>
+              <div className="space-y-2 mb-6 max-h-60 overflow-y-auto bg-gray-50 p-3 rounded-lg border border-gray-200 text-left">
+                {saleDetail.items.map((item, i) => (
+                  <div key={i} className="flex justify-between text-sm py-1 border-b border-gray-200 last:border-0">
+                    <span>
+                      {item.name} <span className="text-gray-400 text-xs">x{item.quantity}</span>
+                    </span>
+                    <span className="font-bold text-gray-700">
+                      ₹{((item.sellPrice * item.quantity) - (item.discount || 0)).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                <Button
+                  variant="neutral"
+                  onClick={initiateEditSale}
+                  className="flex items-center justify-center gap-1.5 border-amber-200 text-amber-700 bg-amber-50 hover:bg-amber-100 hover:border-amber-300 text-xs py-2"
+                >
+                  <Edit3 size={15} /> Edit
+                </Button>
+                {saleDetail.total > 0 && (
+                  <Button
+                    variant="neutral"
+                    onClick={() => startReturnFlow(saleDetail)}
+                    className="flex items-center justify-center gap-1.5 border-red-200 text-red-700 bg-red-50 hover:bg-red-100 hover:border-red-300 text-xs py-2"
+                  >
+                    <RotateCcw size={15} /> Return
+                  </Button>
+                )}
+                <Button className="flex items-center justify-center gap-1.5 text-xs py-2" onClick={() => generateInvoicePDF(saleDetail)}>
+                  <Printer size={15} /> Print
+                </Button>
+              </div>
             </div>
-          </div>
+          )
         )}
       </Modal>
 
