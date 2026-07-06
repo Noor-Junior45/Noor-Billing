@@ -61,6 +61,15 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
   const [partialPaidAmount, setPartialPaidAmount] = useState<string>(''); 
   const [draftInvoiceNum, setDraftInvoiceNum] = useState<string>('');
   
+  const [stockWarningToast, setStockWarningToast] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (stockWarningToast) {
+      const timer = setTimeout(() => setStockWarningToast(null), 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [stockWarningToast]);
+  
   // Quick Customer
   const [quickCustName, setQuickCustName] = useState('');
   const [quickCustPhone, setQuickCustPhone] = useState('');
@@ -346,15 +355,40 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
   };
 
   const addToCart = (product: Product) => {
-    if (settings.soundEnabled) {
-      playBeep('scan');
-    }
     let appliedPrice = product.sellPrice;
     let appliedDiscount = 0;
     if (selectedCustomer?.isWholesaler && product.wholesalePrice && product.wholesalePrice > 0) {
         appliedPrice = product.wholesalePrice;
         appliedDiscount = product.sellPrice - product.wholesalePrice;
     }
+
+    const existingItem = cart.find(item => item.id === product.id);
+    if (existingItem) {
+      if (existingItem.quantity >= product.stock) {
+        if (settings.soundEnabled) {
+          playBeep('error');
+        }
+        setStockWarningToast(`Cannot add more — only ${product.stock} in stock`);
+        setInlineSearch('');
+        setTimeout(() => inlineSearchRef.current?.focus(), 10);
+        return;
+      }
+    } else {
+      if (product.stock <= 0) {
+        if (settings.soundEnabled) {
+          playBeep('error');
+        }
+        setStockWarningToast(`Cannot add — ${product.name} is out of stock`);
+        setInlineSearch('');
+        setTimeout(() => inlineSearchRef.current?.focus(), 10);
+        return;
+      }
+    }
+
+    if (settings.soundEnabled) {
+      playBeep('scan');
+    }
+
     setCart(prev => {
       const exists = prev.find(item => item.id === product.id);
       if (exists) {
@@ -373,6 +407,18 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
         if (field === 'quantity' || field === 'customPrice' || field === 'discount') {
           const parsed = parseFloat(value);
           finalVal = isNaN(parsed) ? 0 : Math.max(0, parsed);
+
+          if (field === 'quantity') {
+            const product = products.find(p => p.id === id);
+            const maxStock = product ? product.stock : 99999;
+            if (parsed > maxStock) {
+              finalVal = maxStock;
+              if (settings.soundEnabled) {
+                playBeep('error');
+              }
+              setStockWarningToast(`Cannot set more — only ${maxStock} in stock`);
+            }
+          }
         }
         let updated = { ...item, [field]: finalVal };
 
@@ -893,6 +939,13 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
           </div>
         </div>
       </Modal>
+
+      {stockWarningToast && (
+        <div className="fixed bottom-24 right-4 bg-red-600 text-white font-bold text-xs px-4 py-3 rounded-xl shadow-2xl z-[99999] flex items-center gap-2 animate-in fade-in slide-in-from-bottom-4 duration-300">
+          <AlertTriangle size={14} className="animate-bounce" />
+          <span>{stockWarningToast}</span>
+        </div>
+      )}
     </div>
   );
 };

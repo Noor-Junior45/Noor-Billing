@@ -46,15 +46,33 @@ import {
   History,
   Image as ImageIcon,
   Shield,
-  PlusCircle
+  PlusCircle,
+  Cloud,
+  CloudOff,
+  RefreshCw,
+  AlertCircle
 } from 'lucide-react';
 import { Card, Button, Input, Modal } from './components/UI';
 import { PrivacyPolicy, TermsOfService } from './components/legal/LegalDocuments';
+import { subscribeSyncStatus, SyncState } from './services/syncStatus';
 
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<Tab>(Tab.POS);
   const [unsyncedOperations, setUnsyncedOperations] = useState<Set<string>>(new Set());
+  
+  const [syncState, setSyncState] = useState<SyncState>('synced');
+  const [syncPendingCount, setSyncPendingCount] = useState(0);
+  const [syncLastError, setSyncLastError] = useState<string | undefined>(undefined);
+  const [showSyncErrorModal, setShowSyncErrorModal] = useState(false);
+
+  useEffect(() => {
+    return subscribeSyncStatus((state, count, err) => {
+      setSyncState(state);
+      setSyncPendingCount(count);
+      setSyncLastError(err);
+    });
+  }, []);
 
   useEffect(() => {
     const handleSyncFailed = (e: any) => {
@@ -504,7 +522,7 @@ export default function App() {
           </div>
 
           {/* Right Side: Profile Avatar Trigger */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             <button
               onClick={() => setIsProfileOpen(!isProfileOpen)}
               className={`relative w-9 h-9 rounded-full overflow-hidden transition-all cursor-pointer border ${
@@ -604,11 +622,44 @@ export default function App() {
             
             {/* User Credentials (Gmail Settings Style) */}
             <div className="flex flex-col items-center text-center mt-6 mb-6 w-full px-1">
-              <div className="flex flex-col items-center gap-2 justify-center">
-                <span className="flex items-center gap-1 px-2.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[9px] font-extrabold border border-indigo-200 uppercase tracking-wider shrink-0">
-                  <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-pulse" />
-                  Supabase Secure
-                </span>
+              <div className="flex flex-col items-center gap-2.5 justify-center">
+                <div className="flex items-center justify-center gap-2 flex-wrap">
+                  <span className="flex items-center gap-1 px-2.5 py-0.5 bg-indigo-100 text-indigo-700 rounded-full text-[9px] font-extrabold border border-indigo-200 uppercase tracking-wider shrink-0">
+                    <span className="w-1.5 h-1.5 bg-indigo-600 rounded-full animate-pulse" />
+                    Supabase Secure
+                  </span>
+
+                  {/* Sync Status Indicator */}
+                  {syncState === 'synced' && (
+                    <div 
+                      className="flex items-center gap-1 px-2.5 py-0.5 bg-emerald-100 text-emerald-700 rounded-full text-[9px] font-extrabold border border-emerald-200 uppercase tracking-wider shrink-0 relative"
+                      title="All changes synced with cloud"
+                    >
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-ping absolute" />
+                      <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full relative ml-0.5" />
+                      <span className="ml-1">Synced</span>
+                    </div>
+                  )}
+                  {syncState === 'pending' && (
+                    <div 
+                      className="flex items-center gap-1 px-2.5 py-0.5 bg-amber-100 text-amber-700 rounded-full text-[9px] font-extrabold border border-amber-200 uppercase tracking-wider shrink-0 animate-pulse"
+                      title={`Syncing changes (${syncPendingCount} pending)...`}
+                    >
+                      <RefreshCw size={8} className="animate-spin text-amber-500" />
+                      <span>Syncing ({syncPendingCount})</span>
+                    </div>
+                  )}
+                  {syncState === 'error' && (
+                    <button 
+                      onClick={() => setShowSyncErrorModal(true)}
+                      className="flex items-center gap-1 px-2.5 py-0.5 bg-rose-100 hover:bg-rose-200 text-rose-700 hover:text-rose-800 rounded-full text-[9px] font-extrabold border border-rose-200 uppercase tracking-wider shrink-0 transition-colors cursor-pointer border-0 shadow-none"
+                      title="Sync failure! Tap to view error details."
+                    >
+                      <AlertCircle size={8} className="text-rose-500 animate-bounce" />
+                      <span>Sync Error</span>
+                    </button>
+                  )}
+                </div>
                 <span className="text-base font-extrabold text-slate-900 tracking-tight">{user.name}</span>
               </div>
               
@@ -1061,6 +1112,37 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {/* Sync Error Details Modal */}
+      <Modal
+        isOpen={showSyncErrorModal}
+        onClose={() => setShowSyncErrorModal(false)}
+        title="Supabase Sync Failure Details"
+        className="!max-w-md"
+      >
+        <div className="space-y-4 text-slate-700 text-xs text-left">
+          <div className="flex justify-center pb-2">
+            <div className="w-12 h-12 bg-rose-100 text-rose-600 rounded-full flex items-center justify-center text-xl shrink-0">
+              <AlertCircle size={24} />
+            </div>
+          </div>
+          <p className="text-center font-bold text-slate-950 text-sm">Offline Sync Interrupted</p>
+          <p className="leading-relaxed text-slate-600">
+            An error occurred when trying to sync your optimistic updates to the Supabase cloud database. The companion app has securely cached your records locally and will attempt background retries.
+          </p>
+          {syncLastError && (
+            <div className="p-3 bg-red-50/60 border border-red-200 rounded-lg font-mono text-[10px] text-red-700 break-words leading-relaxed">
+              <span className="font-bold text-[9px] uppercase tracking-wider block text-red-800 mb-1">Last Sync Exception</span>
+              {syncLastError}
+            </div>
+          )}
+          <div className="flex justify-end pt-4 border-t border-slate-100">
+            <Button onClick={() => setShowSyncErrorModal(false)} className="bg-black text-white hover:bg-black/90 font-bold px-5">
+              Dismiss
+            </Button>
+          </div>
+        </div>
+      </Modal>
 
     </div>
   );

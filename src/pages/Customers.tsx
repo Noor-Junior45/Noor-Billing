@@ -428,10 +428,7 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
       setIsProcessingPayment(true);
       try {
         await StoreService.addCustomerPayment(selectedCustomer.id, amount, paymentMethod, paymentNote, paymentDate, paymentReceipt || undefined);
-        const updatedCustomers = await StoreService.getCustomers();
-        const updatedSelf = updatedCustomers.find(c => c.id === selectedCustomer.id);
-        setCustomers(updatedCustomers);
-        if (updatedSelf) setSelectedCustomer(updatedSelf);
+        await loadData();
         setShowPaymentModal(false);
         window.history.back();
       } finally { setIsProcessingPayment(false); }
