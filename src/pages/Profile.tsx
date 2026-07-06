@@ -220,6 +220,18 @@ export const Profile: React.FC<ProfileProps> = ({ user, onLogin, onLogout, onSet
   }, [totalRevenue, storeSettings]);
 
   useEffect(() => {
+    const handleStoreUpdate = (e: any) => {
+      console.log("Profile page: Store data updated in background, reloading...", e.detail);
+      loadData();
+    };
+
+    window.addEventListener('store-data-updated', handleStoreUpdate);
+    return () => {
+      window.removeEventListener('store-data-updated', handleStoreUpdate);
+    };
+  }, []);
+
+  useEffect(() => {
     loadData();
     // Fetch detailed Supabase user information
     const getSupabaseSession = async () => {

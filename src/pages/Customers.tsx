@@ -104,7 +104,19 @@ export const Customers: React.FC<CustomersProps> = ({ initialAction, onClearActi
   const [touchEnd, setTouchEnd] = useState<{x: number, y: number} | null>(null);
   const minSwipeDistance = 50;
 
-  useEffect(() => { loadData(); }, []);
+  useEffect(() => { 
+    loadData(); 
+
+    const handleStoreUpdate = (e: any) => {
+      console.log("Customers page: Store data updated in background, reloading...", e.detail);
+      loadData();
+    };
+
+    window.addEventListener('store-data-updated', handleStoreUpdate);
+    return () => {
+      window.removeEventListener('store-data-updated', handleStoreUpdate);
+    };
+  }, []);
 
   useEffect(() => {
     if (customers.length > 0 && !hasShownAutoPopup) {

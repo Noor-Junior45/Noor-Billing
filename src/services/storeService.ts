@@ -70,6 +70,7 @@ const defaultData: StoreData = {
 const LS_BACKUP_KEY = 'noor_offline_store_v1';
 let cache: StoreData | null = null;
 let loadPromise: Promise<StoreData> | null = null;
+let realtimeChannels: any[] = [];
 
 const generateId = () => {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
@@ -87,6 +88,9 @@ supabase.auth.onAuthStateChange((_event, session) => {
     currentUid = newUid;
     cache = null;
     loadPromise = null;
+    if (typeof StoreService !== 'undefined' && StoreService.unsubscribeRealtime) {
+      StoreService.unsubscribeRealtime();
+    }
   }
 });
 
@@ -101,6 +105,110 @@ const StoreService = {
   clearCache() {
     cache = null;
     loadPromise = null;
+  },
+
+  unsubscribeRealtime() {
+    if (realtimeChannels.length > 0) {
+      console.log("Unsubscribing from Supabase Realtime channels...");
+      realtimeChannels.forEach(channel => {
+        channel.unsubscribe();
+      });
+      realtimeChannels = [];
+    }
+  },
+
+  setupRealtime(uid: string) {
+    if (!uid || uid === 'guest') return;
+    if (realtimeChannels.length > 0) return; // Already subscribed
+
+    console.log("Setting up Supabase Realtime subscriptions for user:", uid);
+    const tables = ['products', 'sales', 'customers', 'tags', 'settings', 'deleted_items'];
+
+    tables.forEach(table => {
+      const channel = supabase
+        .channel(`realtime-${table}-${uid}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: table,
+            filter: `user_id=eq.${uid}`
+          },
+          (payload: any) => {
+            console.log(`Realtime update received for table ${table}:`, payload);
+            if (!cache) return;
+
+            const { eventType, new: newRow, old: oldRow } = payload;
+
+            if (table === 'settings') {
+              if (eventType === 'DELETE') {
+                cache.settings = { ...defaultSettings };
+              } else {
+                cache.settings = { ...cache.settings, ...settingsFromDb(newRow) };
+              }
+            } else {
+              let arrayKey: 'products' | 'customers' | 'sales' | 'tags' | 'deletedItems';
+              let mapper: (row: any) => any;
+
+              if (table === 'products') {
+                arrayKey = 'products';
+                mapper = productFromDb;
+              } else if (table === 'customers') {
+                arrayKey = 'customers';
+                mapper = customerFromDb;
+              } else if (table === 'sales') {
+                arrayKey = 'sales';
+                mapper = saleFromDb;
+              } else if (table === 'tags') {
+                arrayKey = 'tags';
+                mapper = tagFromDb;
+              } else if (table === 'deleted_items') {
+                arrayKey = 'deletedItems';
+                mapper = deletedItemFromDb;
+              } else {
+                return;
+              }
+
+              const list = cache[arrayKey];
+              if (!list) return;
+
+              if (eventType === 'INSERT') {
+                const item = mapper(newRow);
+                // Check if already exists to prevent duplication
+                if (!list.some((x: any) => x.id === item.id)) {
+                  list.push(item);
+                }
+              } else if (eventType === 'UPDATE') {
+                const item = mapper(newRow);
+                const idx = list.findIndex((x: any) => x.id === item.id);
+                if (idx > -1) {
+                  list[idx] = { ...list[idx], ...item };
+                } else {
+                  list.push(item);
+                }
+              } else if (eventType === 'DELETE') {
+                const id = oldRow.id;
+                const idx = list.findIndex((x: any) => x.id === id);
+                if (idx > -1) {
+                  list.splice(idx, 1);
+                }
+              }
+            }
+
+            // Save to local cache
+            StoreService.saveToLocalCache();
+
+            // Dispatch event to notify UI
+            window.dispatchEvent(new CustomEvent('store-data-updated', { detail: { table, eventType } }));
+          }
+        )
+        .subscribe((status) => {
+          console.log(`Supabase Realtime subscription status for ${table}:`, status);
+        });
+
+      realtimeChannels.push(channel);
+    });
   },
 
   getLastBackupTime() { 
@@ -181,6 +289,7 @@ const StoreService = {
 
             localStorage.setItem(LS_BACKUP_KEY, JSON.stringify(cache));
             localStorage.setItem('noor_last_sync', new Date().toISOString());
+            StoreService.setupRealtime(uid);
             resolve(cache);
         } catch (err) {
             console.warn("Supabase fetch failed, using local cache fallback", err);

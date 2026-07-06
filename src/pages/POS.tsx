@@ -156,6 +156,16 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
         if (draft.paymentMethod) setPaymentMethod(draft.paymentMethod);
         if (draft.partialPaidAmount !== undefined) setPartialPaidAmount(draft.partialPaidAmount);
     }
+
+    const handleStoreUpdate = (e: any) => {
+      console.log("POS page: Store data updated in background, reloading...", e.detail);
+      loadData();
+    };
+
+    window.addEventListener('store-data-updated', handleStoreUpdate);
+    return () => {
+      window.removeEventListener('store-data-updated', handleStoreUpdate);
+    };
   }, []);
 
   useEffect(() => {
