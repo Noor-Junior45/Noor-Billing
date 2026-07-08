@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Tab, User, Customer, Sale, StoreSettings } from './types';
 import { StoreService } from './services/storeService';
 import { supabase } from './services/supabase';
-import { saleFromDb } from './services/mappers';
+import { saleFromDb, customerFromDb, settingsFromDb } from './services/mappers';
 import { Auth } from './pages/Auth';
 import { POS } from './pages/POS';
 import { Customers as CRM } from './pages/Customers';
@@ -1211,21 +1211,81 @@ function CustomerPortalView({ customerId }: PortalProps) {
   useEffect(() => {
     async function loadPortalData() {
       try {
-        const storeSettings = await StoreService.getSettings();
-        setSettings(storeSettings);
+        let activeCustomer: Customer | null = null;
+        let activeSettings: StoreSettings | null = null;
+        let activeSales: Sale[] = [];
 
+        // Try to load from local cache/loaded service data first (when logged in)
+        const storeSettings = await StoreService.getSettings();
         const customersList = await StoreService.getCustomers();
         const foundCustomer = customersList.find(c => c.id === customerId);
+
         if (foundCustomer) {
-          setCustomer(foundCustomer);
-          setPortalName(foundCustomer.name || '');
-          setEmail(foundCustomer.email || '');
-          setLocation(foundCustomer.location || '');
-          setProofAmount(foundCustomer.totalDues.toString());
+          activeCustomer = foundCustomer;
+          activeSettings = storeSettings;
+          activeSales = await StoreService.getSales();
+        } else {
+          // GUEST FLOW: Fetch directly from Supabase!
+          console.log("Customer not found in local cache. Fetching directly from Supabase...");
+          const { data: customerData, error: customerErr } = await supabase
+            .from('customers')
+            .select('*')
+            .eq('id', customerId);
+
+          if (customerData && customerData.length > 0) {
+            const dbCustomer = customerData[0];
+            activeCustomer = customerFromDb(dbCustomer);
+            const merchantUserId = dbCustomer.user_id;
+
+            if (merchantUserId) {
+              // 1. Fetch real merchant settings
+              const { data: settingsData } = await supabase
+                .from('settings')
+                .select('*')
+                .eq('user_id', merchantUserId);
+              if (settingsData && settingsData.length > 0) {
+                activeSettings = settingsFromDb(settingsData[0]);
+              }
+
+              // 2. Fetch sales for this customer
+              // Try direct table query first
+              const { data: salesData } = await supabase
+                .from('sales')
+                .select('*')
+                .eq('customer_id', customerId);
+              
+              if (salesData && salesData.length > 0) {
+                activeSales = salesData.map(saleFromDb);
+              } else if (activeCustomer.history && activeCustomer.history.length > 0) {
+                // RLS Fallback: Fetch individual sales in customer's history via get_public_invoice RPC
+                const rpcPromises = activeCustomer.history.map(async (sid) => {
+                  try {
+                    const { data } = await supabase.rpc('get_public_invoice', { invoice_id: sid });
+                    return data?.[0] ? saleFromDb(data[0]) : null;
+                  } catch (e) {
+                    return null;
+                  }
+                });
+                const fetchedSales = await Promise.all(rpcPromises);
+                activeSales = fetchedSales.filter((s): s is Sale => s !== null);
+              }
+            }
+          }
         }
 
-        const salesList = await StoreService.getSales();
-        setSales(salesList);
+        if (activeCustomer) {
+          setCustomer(activeCustomer);
+          setPortalName(activeCustomer.name || '');
+          setEmail(activeCustomer.email || '');
+          setLocation(activeCustomer.location || '');
+          setProofAmount(activeCustomer.totalDues.toString());
+        }
+        if (activeSettings) {
+          setSettings(activeSettings);
+        }
+        if (activeSales) {
+          setSales(activeSales);
+        }
       } catch (err) {
         console.warn('Error loading portal details:', err);
       } finally {
@@ -1667,14 +1727,24 @@ function DigitalInvoiceView({ saleId }: InvoiceProps) {
   useEffect(() => {
     async function loadInvoice() {
       try {
-        const storeSettings = await StoreService.getSettings();
-        setSettings(storeSettings);
-
         const { data, error } = await supabase.rpc('get_public_invoice', { invoice_id: saleId });
         if (error) throw error;
         const foundSale = data?.[0] ?? null;
         if (foundSale) {
           setSale(saleFromDb(foundSale));
+
+          const merchantUserId = foundSale.user_id;
+          let storeSettings = await StoreService.getSettings();
+          if (merchantUserId && (!storeSettings || storeSettings.storeName === 'My Warehouse')) {
+            const { data: settingsData } = await supabase
+              .from('settings')
+              .select('*')
+              .eq('user_id', merchantUserId);
+            if (settingsData && settingsData.length > 0) {
+              storeSettings = settingsFromDb(settingsData[0]);
+            }
+          }
+          setSettings(storeSettings);
         }
       } catch (err) {
         console.warn('Error loading invoice details:', err);

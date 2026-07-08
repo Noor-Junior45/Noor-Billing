@@ -80,6 +80,7 @@ export interface Payment {
 
 export interface Customer {
   id: string;
+  userId?: string;
   name: string;
   phone: string;
   email?: string;

@@ -624,7 +624,7 @@ const StoreService = {
   
   async upsertCustomer(c: Partial<Customer>) {
       const d = await this.loadData(); 
-      const uid = getUid();
+      const uid = getUid() === 'guest' ? (c.userId || 'guest') : getUid();
       
       // Make sure we have a valid customer object
       const nc = { 

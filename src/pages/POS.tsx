@@ -582,21 +582,67 @@ export const POS: React.FC<POSProps> = ({ currentUser, initialViewMode = 'POS', 
     }
     if (action === 'print') generateInvoicePDF(sale);
     else if (action === 'share') {
+        let pdfBlob: Blob | undefined = undefined;
+        try {
+            // Generate the elegant PDF matching the customer link design
+            const result = await generateInvoicePDF(sale, 'blob');
+            if (result instanceof Blob) {
+                pdfBlob = result;
+            }
+        } catch (pdfErr) {
+            console.error("Failed to generate PDF for WhatsApp share:", pdfErr);
+        }
+
         if (activeCustomer && activeCustomer.phone) {
-            const itemsList = sale.items.map(i => `• ${i.name} x${i.quantity}`).join('%0A');
-            const link = `${window.location.origin}/?invoice=${sale.id}`; 
-            const message = `*${settings.storeName || "Noor Store"}*%0A%0A*Items:*%0A${itemsList}%0A%0A*Total: ₹${sale.total.toFixed(0)}*%0A*Invoice Link:* ${link}`;
-            const url = `https://wa.me/${activeCustomer.phone.replace(/[^0-9]/g, '')}?text=${message}`;
-            try {
-                window.open(url, '_blank');
-            } catch (e) {
-                console.warn("window.open blocked by sandbox context. Emulating fallback click.", e);
-                const a = document.createElement('a');
-                a.href = url;
-                a.target = '_blank';
-                document.body.appendChild(a);
-                a.click();
-                document.body.removeChild(a);
+            const cleanPhone = activeCustomer.phone.replace(/[^0-9]/g, '');
+            const itemsListRaw = sale.items.map(i => `• ${i.name} x${i.quantity}`).join('\n');
+            const itemsListEncoded = sale.items.map(i => `• ${i.name} x${i.quantity}`).join('%0A');
+            const link = `${window.location.origin}/?invoice=${sale.id}`;
+            const storeName = settings.storeName || "Noor Store";
+
+            const rawMessage = `*${storeName}*\n\n*Items:*\n${itemsListRaw}\n\n*Total: ₹${sale.total.toFixed(0)}*\n*Invoice Link:* ${link}`;
+            const encodedMessage = `*${storeName}*%0A%0A*Items:*%0A${itemsListEncoded}%0A%0A*Total: ₹${sale.total.toFixed(0)}*%0A*Invoice Link:* ${link}%0A%0A*(PDF invoice downloaded to device - please attach and send)*`;
+
+            let sharedNatively = false;
+
+            if (pdfBlob && navigator.canShare) {
+                const file = new File([pdfBlob], `Invoice_${sale.id.slice(0, 8).toUpperCase()}.pdf`, { type: 'application/pdf' });
+                if (navigator.canShare({ files: [file] })) {
+                    try {
+                        await navigator.share({
+                            files: [file],
+                            title: `Invoice - ${storeName}`,
+                            text: rawMessage
+                        });
+                        sharedNatively = true;
+                    } catch (shareErr) {
+                        console.warn("Native share failed, falling back to standard link/download:", shareErr);
+                    }
+                }
+            }
+
+            if (!sharedNatively) {
+                // If native file sharing is not supported/failed, download the PDF so the user has it ready
+                if (pdfBlob) {
+                    try {
+                        await generateInvoicePDF(sale, true);
+                    } catch (e) {
+                        console.warn("Fallback download failed:", e);
+                    }
+                }
+
+                const url = `https://wa.me/${cleanPhone}?text=${encodedMessage}`;
+                try {
+                    window.open(url, '_blank');
+                } catch (e) {
+                    console.warn("window.open blocked by sandbox context. Emulating fallback click.", e);
+                    const a = document.createElement('a');
+                    a.href = url;
+                    a.target = '_blank';
+                    document.body.appendChild(a);
+                    a.click();
+                    document.body.removeChild(a);
+                }
             }
         }
     }

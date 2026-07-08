@@ -101,6 +101,7 @@ export function customerToDb(c: Customer, userId: string) {
 export function customerFromDb(row: any): Customer {
   return {
     id: row.id,
+    userId: row.user_id,
     name: row.name,
     phone: row.phone,
     email: row.email,

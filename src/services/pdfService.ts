@@ -1,7 +1,7 @@
 import { Sale, Customer } from "../types";
 import { StoreService } from "./storeService";
 
-export const generateInvoicePDF = async (sale: Sale) => {
+export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boolean | 'print' | 'download' | 'blob') => {
     // @ts-ignore
     const jspdf = window.jspdf;
 
@@ -10,163 +10,260 @@ export const generateInvoicePDF = async (sale: Sale) => {
         return;
     }
 
+    let mode: 'print' | 'download' | 'blob' = 'download';
+    if (typeof forceDownloadOrMode === 'string') {
+        mode = forceDownloadOrMode;
+    } else if (forceDownloadOrMode === true) {
+        mode = 'download';
+    }
+
     const settings = await StoreService.getSettings();
     const { jsPDF } = jspdf;
     // @ts-ignore
     const doc = new jsPDF();
     const pageWidth = 210;
-    
-    // Brand Colors
-    const darkHeader = [31, 41, 55]; // Slate-800
-    const accentText = [79, 70, 229]; // Indigo-600
-    const lightText = [107, 114, 128]; // Slate-500
+    const pageHeight = 297;
 
-    // --- 1. Top Header: INVOICE ---
-    doc.setFontSize(28);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(darkHeader[0], darkHeader[1], darkHeader[2]);
-    doc.text("INVOICE", 14, 25);
+    // Set page background to elegant off-white (#F8F7F4)
+    doc.setFillColor(248, 247, 244);
+    doc.rect(0, 0, pageWidth, pageHeight, 'F');
 
-    // --- 2. Company Details (Left) ---
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.text(settings.storeName || "Company Name", 14, 35);
-    
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(lightText[0], lightText[1], lightText[2]);
-    let currentY = 40;
-    if (settings.storeAddress) {
-        doc.text(settings.storeAddress, 14, currentY);
-        currentY += 5;
-    }
-    if (settings.storePhone) {
-        doc.text(`Phone: ${settings.storePhone}`, 14, currentY);
-        currentY += 5;
-    }
-    if (settings.storeEmail) {
-        doc.text(settings.storeEmail, 14, currentY);
-    }
+    // --- Elegant Container Card Background (#FAF9F6) ---
+    // Draw card container with border from X=15 to X=195 (width 180mm)
+    doc.setFillColor(250, 249, 246);
+    doc.setDrawColor(220, 219, 215); // subtle border
+    doc.roundedRect(15, 12, 180, pageHeight - 24, 2, 2, 'FD');
 
-    // --- 3. Bill To & Date (Right) ---
-    const rightColX = pageWidth - 14;
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(darkHeader[0], darkHeader[1], darkHeader[2]);
-    doc.text("BILL TO:", rightColX - 50, 35);
-    
-    doc.setFont("helvetica", "normal");
-    doc.text(sale.customerName, rightColX, 35, { align: 'right' });
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("INVOICE #:", rightColX - 50, 45);
-    doc.setFont("helvetica", "normal");
-    doc.text(sale.id.slice(0, 10).toUpperCase(), rightColX, 45, { align: 'right' });
-    
-    doc.setFont("helvetica", "bold");
-    doc.text("DATE:", rightColX - 50, 52);
-    doc.setFont("helvetica", "normal");
-    doc.text(new Date(sale.timestamp).toLocaleDateString(), rightColX, 52, { align: 'right' });
+    let currentY = 24;
 
-    // --- 4. Main Table ---
-    const tableHeaders = [["#", "ITEM DETAILS", "PRICE", "DISCOUNT", "QTY", "TOTAL"]];
-    const tableRows = sale.items.map((item, idx) => {
-        const disc = item.discount || 0;
-        const lineTotal = (item.sellPrice * item.quantity) - disc;
-        return [
-            (idx + 1).toString(),
-            item.name,
-            `${settings.currencySymbol || '₹'} ${item.sellPrice.toFixed(2)}`,
-            disc > 0 ? `${settings.currencySymbol || '₹'} ${disc.toFixed(2)}` : "-",
-            item.quantity.toString(),
-            `${settings.currencySymbol || '₹'} ${lineTotal.toFixed(2)}`
-        ];
-    });
-
-    // @ts-ignore
-    doc.autoTable({
-        startY: 65,
-        head: tableHeaders,
-        body: tableRows,
-        theme: 'striped',
-        headStyles: {
-            fillColor: darkHeader,
-            textColor: 255,
-            fontSize: 9,
-            fontStyle: 'bold',
-            halign: 'center'
-        },
-        styles: {
-            fontSize: 9,
-            cellPadding: 4,
-            textColor: [50, 50, 50]
-        },
-        columnStyles: {
-            0: { halign: 'center', cellWidth: 10 },
-            1: { halign: 'left' },
-            2: { halign: 'right' },
-            3: { halign: 'right' },
-            4: { halign: 'center' },
-            5: { halign: 'right', fontStyle: 'bold' }
-        }
-    });
-
-    // --- 5. Footer Calculations ---
-    // @ts-ignore
-    let finalY = doc.lastAutoTable.finalY + 10;
-    const totalsLabelX = pageWidth - 60;
-    const totalsValueX = pageWidth - 14;
-
-    const totalDiscount = sale.items.reduce((acc, item) => acc + (item.discount || 0), 0);
-
-    const drawTotalRow = (label: string, value: string, isBold = false) => {
-        doc.setFontSize(10);
-        doc.setFont("helvetica", isBold ? "bold" : "normal");
-        doc.setTextColor(darkHeader[0], darkHeader[1], darkHeader[2]);
-        doc.text(label, totalsLabelX, finalY);
-        doc.text(value, totalsValueX, finalY, { align: 'right' });
-        finalY += 6;
+    // Helper to draw a dashed line
+    const drawDashedDivider = (yPos: number) => {
+        doc.setLineDashPattern([2, 2], 0);
+        doc.setDrawColor(210, 209, 205);
+        doc.line(22, yPos, pageWidth - 22, yPos);
+        doc.setLineDashPattern([], 0); // Reset dash
     };
 
-    drawTotalRow("Gross Total:", `${settings.currencySymbol || '₹'} ${sale.subtotal.toFixed(2)}`);
-    if (totalDiscount > 0) {
-        doc.setTextColor(220, 38, 38); // Red
-        drawTotalRow("Total Discounts:", `- ${settings.currencySymbol || '₹'} ${totalDiscount.toFixed(2)}`);
-    }
-    drawTotalRow("Tax:", `${settings.currencySymbol || '₹'} ${sale.tax.toFixed(2)}`);
-    
-    finalY += 2;
-    doc.setDrawColor(200, 200, 200);
-    doc.line(totalsLabelX, finalY, totalsValueX, finalY);
-    finalY += 8;
+    // Helper to draw a solid divider line
+    const drawSolidDivider = (yPos: number) => {
+        doc.setDrawColor(230, 229, 225);
+        doc.line(22, yPos, pageWidth - 22, yPos);
+    };
 
-    doc.setFontSize(14);
-    drawTotalRow("Net Payable:", `${settings.currencySymbol || '₹'} ${sale.total.toFixed(2)}`, true);
+    // Helper to check for page break and handle background continuation
+    const checkPageBreak = (neededHeight: number) => {
+        if (currentY + neededHeight > 275) {
+            doc.addPage();
+            // Draw backgrounds on new page
+            doc.setFillColor(248, 247, 244);
+            doc.rect(0, 0, pageWidth, pageHeight, 'F');
+            doc.setFillColor(250, 249, 246);
+            doc.setDrawColor(220, 219, 215);
+            doc.roundedRect(15, 12, 180, pageHeight - 24, 2, 2, 'FD');
+            currentY = 24;
+        }
+    };
 
-    finalY += 4;
+    // --- 1. Top Header (Store Details) ---
+    doc.setFont("times", "bold");
+    doc.setFontSize(20);
+    doc.setTextColor(26, 26, 24); // #1A1A18
+    doc.text(settings.storeName || "Noor Warehouse", pageWidth / 2, currentY, { align: 'center' });
+    currentY += 7;
+
+    doc.setFont("courier", "normal");
     doc.setFontSize(9);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(lightText[0], lightText[1], lightText[2]);
-
-    const paid = sale.amountPaid !== undefined ? sale.amountPaid : sale.total;
-    const due = sale.total - paid;
-
-    let payText = `Payment Mode: ${sale.paymentMethod || 'Cash'}`;
-    if (due > 0.01) {
-        payText += ` | Paid: ${settings.currencySymbol || '₹'}${paid.toFixed(2)} | Balance Due: ${settings.currencySymbol || '₹'}${due.toFixed(2)}`;
-    } else {
-        payText += ` | Fully Paid`;
+    doc.setTextColor(120, 120, 118); // Muted gray
+    if (settings.storeAddress) {
+        doc.text(settings.storeAddress, pageWidth / 2, currentY, { align: 'center' });
+        currentY += 4.5;
     }
-    doc.text(payText, totalsValueX, finalY, { align: 'right' });
+    if (settings.storePhone) {
+        doc.text(`Phone: ${settings.storePhone}`, pageWidth / 2, currentY, { align: 'center' });
+        currentY += 4.5;
+    }
 
-    // --- 6. Final Thank You ---
-    finalY = Math.max(finalY + 30, 270);
-    doc.setFontSize(12);
-    doc.setFont("helvetica", "bold italic");
-    doc.setTextColor(darkHeader[0], darkHeader[1], darkHeader[2]);
-    doc.text("Thank you for your business!", pageWidth / 2, finalY, { align: 'center' });
+    // --- Electronic Invoice Badge ---
+    currentY += 3;
+    doc.setFillColor(235, 242, 234); // light green
+    doc.setDrawColor(215, 228, 213);
+    doc.roundedRect((pageWidth - 55) / 2, currentY, 55, 6.5, 1, 1, 'FD');
 
-    // --- 7. Output Logic ---
-    if (settings.directPrintEnabled) {
+    doc.setFont("courier", "bold");
+    doc.setFontSize(8.5);
+    doc.setTextColor(45, 90, 39); // green
+    doc.text("ELECTRONIC INVOICE", pageWidth / 2, currentY + 4.5, { align: 'center' });
+    currentY += 13;
+
+    // Dashed divider line
+    drawDashedDivider(currentY);
+    currentY += 7;
+
+    // --- 2. Invoice Metadata ---
+    doc.setFont("courier", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 118);
+    doc.text("INVOICE ID", 24, currentY);
+    doc.text("TIMESTAMP", pageWidth - 24, currentY, { align: 'right' });
+
+    currentY += 4.5;
+    doc.setFont("courier", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(26, 26, 24);
+    doc.text(sale.id.slice(0, 10).toUpperCase(), 24, currentY);
+    doc.text(new Date(sale.timestamp).toLocaleString(), pageWidth - 24, currentY, { align: 'right' });
+
+    currentY += 7;
+    doc.setFont("courier", "normal");
+    doc.setFontSize(8);
+    doc.setTextColor(120, 120, 118);
+    doc.text("CUSTOMER NAME", 24, currentY);
+    doc.text("SERVED BY", pageWidth - 24, currentY, { align: 'right' });
+
+    currentY += 4.5;
+    doc.setFont("courier", "bold");
+    doc.setFontSize(10);
+    doc.setTextColor(26, 26, 24);
+    doc.text(sale.customerName, 24, currentY);
+    doc.text(sale.servedBy || "Staff", pageWidth - 24, currentY, { align: 'right' });
+    currentY += 8;
+
+    // Solid divider line
+    drawSolidDivider(currentY);
+    currentY += 7;
+
+    // --- 3. Purchased Products Header ---
+    doc.setFont("courier", "normal");
+    doc.setFontSize(8.5);
+    doc.setTextColor(120, 120, 118);
+    doc.text("PURCHASED PRODUCTS", 24, currentY);
+    currentY += 7;
+
+    // --- 4. Products List ---
+    sale.items.forEach((item) => {
+        checkPageBreak(16);
+
+        // Draw item name in times bold
+        doc.setFont("times", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(26, 26, 24);
+        
+        // Truncate name if too long for layout width
+        let displayName = item.name;
+        if (displayName.length > 35) displayName = displayName.slice(0, 32) + "...";
+        doc.text(displayName, 24, currentY);
+
+        // Draw line total on the far right
+        const itemPrice = item.customPrice || item.sellPrice;
+        const disc = item.discount || 0;
+        const lineTotal = (itemPrice - disc) * item.quantity;
+        
+        doc.setFont("courier", "bold");
+        doc.setFontSize(11);
+        doc.setTextColor(26, 26, 24);
+        doc.text(`₹${lineTotal.toLocaleString()}`, pageWidth - 24, currentY, { align: 'right' });
+
+        currentY += 4.5;
+
+        // Draw quantity/price detail line
+        doc.setFont("courier", "normal");
+        doc.setFontSize(9);
+        doc.setTextColor(120, 120, 118);
+        const detailText = `${item.quantity} ${item.unit || 'pcs'} x ₹${itemPrice.toLocaleString()}`;
+        doc.text(detailText, 24, currentY);
+
+        // Draw discount tag if any
+        if (disc > 0) {
+            doc.setFillColor(254, 242, 242); // light red
+            doc.setDrawColor(254, 226, 226);
+            doc.roundedRect(80, currentY - 3.2, 26, 4.2, 0.5, 0.5, 'FD');
+            
+            doc.setFont("courier", "bold");
+            doc.setFontSize(7.5);
+            doc.setTextColor(185, 28, 28); // red
+            doc.text(`-₹${disc} Disc`, 81.5, currentY - 0.2);
+        }
+
+        currentY += 8;
+    });
+
+    // Dashed divider line
+    currentY += 1;
+    checkPageBreak(8);
+    drawDashedDivider(currentY);
+    currentY += 7;
+
+    // --- 5. Financial Summary ---
+    const drawSummaryRow = (label: string, value: string, fontType = "courier", fontStyle = "normal", size = 10, textColor = [26, 26, 24]) => {
+        checkPageBreak(8);
+        doc.setFont(fontType, fontStyle);
+        doc.setFontSize(size);
+        doc.setTextColor(textColor[0], textColor[1], textColor[2]);
+        doc.text(label, 24, currentY);
+        doc.text(value, pageWidth - 24, currentY, { align: 'right' });
+        currentY += 5.5;
+    };
+
+    drawSummaryRow("Subtotal:", `₹${sale.subtotal.toLocaleString()}`, "courier", "normal", 10, [120, 120, 118]);
+    if (sale.tax > 0) {
+        drawSummaryRow("Tax (GST):", `₹${sale.tax.toLocaleString()}`, "courier", "normal", 10, [120, 120, 118]);
+    }
+
+    currentY += 1.5;
+    // Total Invoice Amount: larger font and times bold
+    drawSummaryRow("Total Invoice Amount:", `₹${sale.total.toLocaleString()}`, "times", "bold", 13, [26, 26, 24]);
+
+    if (sale.amountPaid !== undefined) {
+        drawSummaryRow("Amount Paid:", `₹${sale.amountPaid.toLocaleString()}`, "courier", "bold", 10, [45, 90, 39]); // green text
+    }
+
+    const outstanding = sale.total - (sale.amountPaid || 0);
+    if (sale.amountPaid !== undefined && outstanding > 0.01) {
+        currentY += 1.5;
+        checkPageBreak(12);
+
+        // Draw outstanding balance box (light red bg)
+        doc.setFillColor(254, 242, 242);
+        doc.setDrawColor(254, 226, 226);
+        doc.roundedRect(24, currentY, pageWidth - 48, 8, 1, 1, 'FD');
+
+        doc.setFont("courier", "bold");
+        doc.setFontSize(9.5);
+        doc.setTextColor(185, 28, 28);
+        doc.text("Outstanding Balance Due:", 28, currentY + 5.2);
+        doc.text(`₹${outstanding.toLocaleString()}`, pageWidth - 28, currentY + 5.2, { align: 'right' });
+        currentY += 12;
+    }
+
+    // --- 6. Footer (Receipt Header & Footer) ---
+    currentY += 2;
+    checkPageBreak(15);
+    drawSolidDivider(currentY);
+    currentY += 7;
+
+    if (settings.receiptHeader) {
+        checkPageBreak(8);
+        doc.setFont("courier", "normal");
+        doc.setFontSize(8.5);
+        doc.setTextColor(120, 120, 118);
+        doc.text(settings.receiptHeader.toUpperCase(), pageWidth / 2, currentY, { align: 'center' });
+        currentY += 5;
+    }
+
+    if (settings.receiptFooter) {
+        checkPageBreak(8);
+        doc.setFont("times", "italic");
+        doc.setFontSize(11);
+        doc.setTextColor(45, 90, 39); // green text
+        doc.text(`"${settings.receiptFooter}"`, pageWidth / 2, currentY, { align: 'center' });
+    }
+
+    // --- 7. Output / Deliver Logic ---
+    if (mode === 'blob') {
+        return doc.output('blob');
+    }
+
+    if (settings.directPrintEnabled && mode !== 'download') {
         try {
             // Direct Print: Use blob URL and print
             const blob = doc.output('blob');
