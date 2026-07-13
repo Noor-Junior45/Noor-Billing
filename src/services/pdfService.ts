@@ -1,7 +1,11 @@
-import { Sale, Customer } from "../types";
+import { Sale, Customer, StoreSettings } from "../types";
 import { StoreService } from "./storeService";
 
-export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boolean | 'print' | 'download' | 'blob') => {
+export const generateInvoicePDF = async (
+  sale: Sale, 
+  forceDownloadOrMode?: boolean | 'print' | 'download' | 'blob',
+  overrideSettings?: StoreSettings
+) => {
     // @ts-ignore
     const jspdf = window.jspdf;
 
@@ -17,7 +21,7 @@ export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boole
         mode = 'download';
     }
 
-    const settings = await StoreService.getSettings();
+    const settings = overrideSettings || await StoreService.getSettings();
     const { jsPDF } = jspdf;
     // @ts-ignore
     const doc = new jsPDF();
@@ -161,7 +165,7 @@ export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boole
         doc.setFont("courier", "bold");
         doc.setFontSize(11);
         doc.setTextColor(26, 26, 24);
-        doc.text(`₹${lineTotal.toLocaleString()}`, pageWidth - 24, currentY, { align: 'right' });
+        doc.text(`Rs. ${lineTotal.toLocaleString()}`, pageWidth - 24, currentY, { align: 'right' });
 
         currentY += 4.5;
 
@@ -169,7 +173,7 @@ export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boole
         doc.setFont("courier", "normal");
         doc.setFontSize(9);
         doc.setTextColor(120, 120, 118);
-        const detailText = `${item.quantity} ${item.unit || 'pcs'} x ₹${itemPrice.toLocaleString()}`;
+        const detailText = `${item.quantity} ${item.unit || 'pcs'} x Rs. ${itemPrice.toLocaleString()}`;
         doc.text(detailText, 24, currentY);
 
         // Draw discount tag if any
@@ -181,7 +185,7 @@ export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boole
             doc.setFont("courier", "bold");
             doc.setFontSize(7.5);
             doc.setTextColor(185, 28, 28); // red
-            doc.text(`-₹${disc} Disc`, 81.5, currentY - 0.2);
+            doc.text(`-Rs. ${disc} Disc`, 81.5, currentY - 0.2);
         }
 
         currentY += 8;
@@ -204,17 +208,17 @@ export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boole
         currentY += 5.5;
     };
 
-    drawSummaryRow("Subtotal:", `₹${sale.subtotal.toLocaleString()}`, "courier", "normal", 10, [120, 120, 118]);
+    drawSummaryRow("Subtotal:", `Rs. ${sale.subtotal.toLocaleString()}`, "courier", "normal", 10, [120, 120, 118]);
     if (sale.tax > 0) {
-        drawSummaryRow("Tax (GST):", `₹${sale.tax.toLocaleString()}`, "courier", "normal", 10, [120, 120, 118]);
+        drawSummaryRow("Tax (GST):", `Rs. ${sale.tax.toLocaleString()}`, "courier", "normal", 10, [120, 120, 118]);
     }
 
     currentY += 1.5;
     // Total Invoice Amount: larger font and times bold
-    drawSummaryRow("Total Invoice Amount:", `₹${sale.total.toLocaleString()}`, "times", "bold", 13, [26, 26, 24]);
+    drawSummaryRow("Total Invoice Amount:", `Rs. ${sale.total.toLocaleString()}`, "times", "bold", 13, [26, 26, 24]);
 
     if (sale.amountPaid !== undefined) {
-        drawSummaryRow("Amount Paid:", `₹${sale.amountPaid.toLocaleString()}`, "courier", "bold", 10, [45, 90, 39]); // green text
+        drawSummaryRow("Amount Paid:", `Rs. ${sale.amountPaid.toLocaleString()}`, "courier", "bold", 10, [45, 90, 39]); // green text
     }
 
     const outstanding = sale.total - (sale.amountPaid || 0);
@@ -231,7 +235,7 @@ export const generateInvoicePDF = async (sale: Sale, forceDownloadOrMode?: boole
         doc.setFontSize(9.5);
         doc.setTextColor(185, 28, 28);
         doc.text("Outstanding Balance Due:", 28, currentY + 5.2);
-        doc.text(`₹${outstanding.toLocaleString()}`, pageWidth - 28, currentY + 5.2, { align: 'right' });
+        doc.text(`Rs. ${outstanding.toLocaleString()}`, pageWidth - 28, currentY + 5.2, { align: 'right' });
         currentY += 12;
     }
 

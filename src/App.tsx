@@ -3,6 +3,7 @@ import { Tab, User, Customer, Sale, StoreSettings } from './types';
 import { StoreService } from './services/storeService';
 import { supabase } from './services/supabase';
 import { saleFromDb, customerFromDb, settingsFromDb } from './services/mappers';
+import { generateInvoicePDF } from './services/pdfService';
 import { Auth } from './pages/Auth';
 import { POS } from './pages/POS';
 import { Customers as CRM } from './pages/Customers';
@@ -1853,10 +1854,10 @@ function DigitalInvoiceView({ saleId }: InvoiceProps) {
           {settings?.receiptFooter && <p className="text-[11px] text-[#2D5A27] font-serif italic">"{settings.receiptFooter}"</p>}
           
           <button 
-            onClick={() => window.print()}
+            onClick={() => generateInvoicePDF(sale, 'download', settings ?? undefined)}
             className="w-full py-3.5 bg-[#1A1A18] hover:bg-[#1A1A18]/90 text-[#F8F7F4] rounded-none text-[10px] font-mono uppercase tracking-[0.15em] flex items-center justify-center gap-1.5 transition-all mt-4 print:hidden cursor-pointer border-0 shadow-sm"
           >
-            <Printer size={13} /> Print Receipt copy
+            <Download size={13} /> Download Invoice PDF
           </button>
         </div>
       </div>
