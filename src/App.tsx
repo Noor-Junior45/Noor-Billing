@@ -1225,49 +1225,19 @@ function CustomerPortalView({ customerId }: PortalProps) {
           activeSettings = storeSettings;
           activeSales = await StoreService.getSales();
         } else {
-          // GUEST FLOW: Fetch directly from Supabase!
-          console.log("Customer not found in local cache. Fetching directly from Supabase...");
-          const { data: customerData, error: customerErr } = await supabase
-            .from('customers')
-            .select('*')
-            .eq('id', customerId);
+          // GUEST FLOW: Fetch directly from Supabase RPC!
+          console.log("Customer not found in local cache. Fetching via get_public_customer_portal RPC...");
+          const { data, error } = await supabase.rpc('get_public_customer_portal', { p_customer_id: customerId });
 
-          if (customerData && customerData.length > 0) {
-            const dbCustomer = customerData[0];
-            activeCustomer = customerFromDb(dbCustomer);
-            const merchantUserId = dbCustomer.user_id;
-
-            if (merchantUserId) {
-              // 1. Fetch real merchant settings
-              const { data: settingsData } = await supabase
-                .from('settings')
-                .select('*')
-                .eq('user_id', merchantUserId);
-              if (settingsData && settingsData.length > 0) {
-                activeSettings = settingsFromDb(settingsData[0]);
+          if (!error && data) {
+            const res = Array.isArray(data) ? data[0] : data;
+            if (res && res.customer) {
+              activeCustomer = customerFromDb(res.customer);
+              if (res.settings) {
+                activeSettings = settingsFromDb(res.settings);
               }
-
-              // 2. Fetch sales for this customer
-              // Try direct table query first
-              const { data: salesData } = await supabase
-                .from('sales')
-                .select('*')
-                .eq('customer_id', customerId);
-              
-              if (salesData && salesData.length > 0) {
-                activeSales = salesData.map(saleFromDb);
-              } else if (activeCustomer.history && activeCustomer.history.length > 0) {
-                // RLS Fallback: Fetch individual sales in customer's history via get_public_invoice RPC
-                const rpcPromises = activeCustomer.history.map(async (sid) => {
-                  try {
-                    const { data } = await supabase.rpc('get_public_invoice', { invoice_id: sid });
-                    return data?.[0] ? saleFromDb(data[0]) : null;
-                  } catch (e) {
-                    return null;
-                  }
-                });
-                const fetchedSales = await Promise.all(rpcPromises);
-                activeSales = fetchedSales.filter((s): s is Sale => s !== null);
+              if (Array.isArray(res.sales)) {
+                activeSales = res.sales.map(saleFromDb);
               }
             }
           }
